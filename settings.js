@@ -31,6 +31,11 @@ const DEFAULTS = {
   // with "new link". area: full | pip; layers: both | base | top;
   // quality: low | standard | high.
   stream: { enabled: false, port: 47800, token: '', area: 'full', layers: 'both', quality: 'standard' },
+  // Base map view, restored at start-up: { center, zoom, bearing, pitch }.
+  mapView: null,
+  // Center on a target near a location: 'off' | 'stream' (while someone
+  // watches the LAN stream) | 'always' (follow.js).
+  follow: 'off',
   // Changed global shortcuts only: { id: accelerator }, '' = off
   // (shortcuts.js has the ids and defaults).
   shortcuts: {},
@@ -64,6 +69,9 @@ function loadSettings(siteIds) {
   if (!['low', 'standard', 'high'].includes(s.quality)) s.quality = DEFAULTS.stream.quality;
   if (!(Number.isInteger(s.port) && s.port >= 1024 && s.port <= 65535)) s.port = DEFAULTS.stream.port;
   if (!Array.isArray(settings.locations)) settings.locations = [];
+  if (!['off', 'stream', 'always'].includes(settings.follow)) settings.follow = DEFAULTS.follow;
+  const v = settings.mapView;
+  if (!(v && Array.isArray(v.center) && v.center.length === 2 && v.center.every(Number.isFinite) && Number.isFinite(v.zoom))) settings.mapView = null;
   if (!settings.shortcuts || typeof settings.shortcuts !== 'object' || Array.isArray(settings.shortcuts)) settings.shortcuts = {};
   if (!siteIds.includes(settings.base)) settings.base = DEFAULTS.base;
   if (!LANGS.includes(settings.lang)) settings.lang = DEFAULTS.lang;

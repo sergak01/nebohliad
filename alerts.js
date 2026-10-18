@@ -26,7 +26,8 @@ const STRINGS = {
     line: (kind, km, site) => `${kind} · ~${km} км · ${site}`,
     more: (n) => `і ще ${n}`,
     tail: 'Не замінює офіційної тривоги.',
-    banner: (n, kind, km, name) => `⚠ Цілей поблизу локацій: ${n} · найближча: ${kind} ~${km} км від «${name}»`,
+    // The nearest target first, then how many there are.
+    banner: (n, kind, km, name) => `⚠ ${kind} ~${km} км від «${name}»${n > 1 ? ` · усього поблизу: ${n}` : ''}`,
     testTitle: 'Небогляд: перевірка сповіщень',
     testBody: 'Так виглядатиме сповіщення про ціль поблизу локації.',
     droneTitle: (name, count) => `${count === 1 ? 'Дрон' : `Дронів: ${count}`} поблизу «${name}»`,
@@ -44,7 +45,7 @@ const STRINGS = {
     line: (kind, km, site) => `${kind} · ~${km} km · ${site}`,
     more: (n) => `and ${n} more`,
     tail: 'Not a replacement for official alerts.',
-    banner: (n, kind, km, name) => `⚠ Targets near locations: ${n} · nearest: ${kind} ~${km} km from “${name}”`,
+    banner: (n, kind, km, name) => `⚠ ${kind} ~${km} km from “${name}”${n > 1 ? ` · ${n} near in all` : ''}`,
     testTitle: 'Nebohliad: notification test',
     testBody: 'This is how a target near a location will be announced.',
     droneTitle: (name, count) => `${count === 1 ? 'Drone' : `${count} drones`} near “${name}”`,

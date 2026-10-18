@@ -248,9 +248,10 @@ function installMapSync(sendView, sendReady) {
     return true;
   }
 
+  // Re-sent on request (realign, resize): `echo` tells main it is not a move.
   function emitView() {
     const map = mainMap();
-    if (map) sendView(viewOf(map));
+    if (map) sendView({ ...viewOf(map), echo: true });
   }
 
   // Animated move requested by the user (search). Its move events are
@@ -259,7 +260,10 @@ function installMapSync(sendView, sendReady) {
     const map = mainMap();
     if (!map) return;
     if (command.bbox) map.fitBounds(command.bbox, { padding: 60, maxZoom: 12, duration: 800 });
-    else map.flyTo({ center: command.center, zoom: command.zoom ?? map.getZoom(), duration: 800 });
+    // Restoring a saved view at start-up: no animation.
+    else if (command.jump) {
+      map.jumpTo({ center: command.center, zoom: command.zoom, bearing: command.bearing ?? map.getBearing(), pitch: command.pitch ?? map.getPitch() });
+    } else map.flyTo({ center: command.center, zoom: command.zoom ?? map.getZoom(), duration: 800 });
   }
 
   // A marker for the searched place, drawn as a plain element in the map

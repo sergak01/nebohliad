@@ -52,6 +52,7 @@ function render() {
   setSwitch('alerts-enabled', state.alerts.enabled);
   if (document.activeElement !== $('radius')) $('radius').value = state.alerts.radiusKm;
   setSwitch('close-to-tray', state.closeToTray);
+  for (const button of $('follow').children) button.classList.toggle('active', button.dataset.value === state.follow);
   for (const button of $('fps').children) button.classList.toggle('active', Number(button.dataset.fps) === state.fpsLimit);
   $('about-name').textContent = t('app.name');
   $('about-version').textContent = state.about.version;
@@ -384,6 +385,7 @@ $('alerts-test').addEventListener('click', async () => {
   $('alerts-status').textContent = t(shown ? 'menu.alerts.testSent' : 'menu.alerts.unsupported');
 });
 $('close-to-tray').addEventListener('click', () => set('closeToTray', !state.closeToTray));
+for (const button of $('follow').children) button.addEventListener('click', () => set('follow', button.dataset.value));
 for (const button of $('fps').children) button.addEventListener('click', () => set('fpsLimit', Number(button.dataset.fps)));
 $('show-notice').addEventListener('click', () => overlay.send('ui:notice-open'));
 $('stream-enabled').addEventListener('click', () => set('streamEnabled', !state.stream.enabled));

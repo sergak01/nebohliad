@@ -35,7 +35,9 @@
   основну мапу можна поміняти.
 - Режим «лише мапа» без інтерфейсу сайтів; пошук адрес і координат.
 - Локації: основна відкриває всю свою область; сповіщення Windows, коли ціль
-  у заданому радіусі від будь-якої локації.
+  у заданому радіусі від будь-якої локації; за бажання мапа стежить за такою
+  ціллю (завжди або лише під час трансляції) і повертається, коли ціль піде.
+- Мапа відкривається там, де ви її залишили.
 - «Картинка в картинці» поверх усіх вікон, робота з трею, теми, українська
   та англійська.
 - Трансляція на інші пристрої в локальній мережі (телефон, планшет, ТВ) у
@@ -151,7 +153,10 @@ of the other, with synchronized zoom and position.
   semi-transparent; the base map can be swapped.
 - Map-only mode without the sites' interface; address and coordinate search.
 - Locations: the primary one opens its whole region; Windows notifications
-  when a target is within a set radius of any location.
+  when a target is within a set radius of any location; optionally the map
+  follows such a target (always, or only while streaming) and goes back when
+  it leaves.
+- The map opens where you left it.
 - Always-on-top picture-in-picture, tray mode, themes, Ukrainian and English.
 - Streaming to other devices on the local network (phone, tablet, TV) in a
   browser or VLC: whole map or an area, both layers or one, three quality

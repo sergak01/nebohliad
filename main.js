@@ -18,6 +18,7 @@ const { setupAlerts } = require('./alerts');
 const { setupMenu } = require('./menu-window');
 const { setupSettings } = require('./settings-window');
 const { setupShortcuts } = require('./shortcuts');
+const { setupFollow, MODES: FOLLOW_MODES } = require('./follow');
 const { setupTray } = require('./tray');
 const { setupNotice } = require('./notice-window');
 const { setupStream, QUALITY, AREAS, LAYERS } = require('./stream-server');
@@ -117,8 +118,14 @@ let stream = null;
 let streamState = { running: false, error: null, viewers: 0, urls: [], qr: null, code: null };
 let quitting = false; // Set on a real quit, so 'close' does not hide to tray.
 let trayAnnounced = false;
-let homeShown = false; // The primary location is shown once at start-up.
+let homeShown = false; // The start-up view is set once.
 const HOME_DELAY_MS = 1500; // Let the base site finish restoring its own view.
+let follow = null;
+let viewSaveTimer = null;
+// Views are saved only after the start-up view is set: before that the base
+// site reports its own restored view, which must not replace ours.
+let startupViewSet = false;
+const VIEW_SAVE_DELAY_MS = 1500;
 
 const overlayId = () => SITE_IDS.find((id) => id !== settings.base);
 const basePage = () => pages[settings.base].webContents;
@@ -213,14 +220,41 @@ ipcMain.on('map-view', (event, view) => {
   const site = siteOf(event.sender);
   if (site) lastViews[site] = view;
   otherPage(event.sender)?.send('set-map-view', view);
+  if (site && site === settings?.base) {
+    // Echoes (re-sent views) and bounces are not moves by the user.
+    if (!view.echo && !view.bounce) follow?.viewChanged();
+    if (startupViewSet) scheduleViewSave();
+  }
 });
+
+// The base map's view is kept in settings.mapView and restored at start-up.
+// While following a target, the view from before is the one kept.
+function saveMapView() {
+  clearTimeout(viewSaveTimer);
+  viewSaveTimer = null;
+  const view = follow?.isFollowing() ? follow.savedView() : lastViews[settings.base];
+  if (!view?.center) return;
+  settings.mapView = { center: view.center, zoom: view.zoom, bearing: view.bearing || 0, pitch: view.pitch || 0 };
+  saveSettings(settings);
+}
+
+function scheduleViewSave() {
+  clearTimeout(viewSaveTimer);
+  viewSaveTimer = setTimeout(saveMapView, VIEW_SAVE_DELAY_MS);
+}
+
 ipcMain.on('map-ready', (event) => {
   realignMaps();
   if (pin) event.sender.send('map-pin', pin);
   locations?.redraw();
-  if (!homeShown && event.sender === basePage() && locations?.primary()) {
+  if (!homeShown && event.sender === basePage()) {
     homeShown = true;
-    setTimeout(() => locations.show(), HOME_DELAY_MS);
+    // The last view, else the primary location's region (first run).
+    setTimeout(() => {
+      if (settings.mapView) basePage().send('map-command', { jump: true, ...settings.mapView });
+      else locations?.show();
+      startupViewSet = true;
+    }, HOME_DELAY_MS);
   }
 });
 
@@ -305,6 +339,7 @@ function pushState() {
   state.closeToTray = settings.closeToTray;
   state.fpsLimit = settings.fpsLimit;
   state.shortcuts = shortcuts?.list() || [];
+  state.follow = settings.follow;
   state.about = { version: APP_VERSION, homepage: HOMEPAGE, license: LICENSE };
   const { token, ...streamSettings } = settings.stream; // The token is in the URLs.
   state.stream = { ...streamSettings, ...streamState };
@@ -327,6 +362,7 @@ function pushState() {
 async function refreshStream() {
   if (!stream) return;
   streamState = await stream.state();
+  follow?.stopIfInactive(); // "For the stream" ends when nobody watches.
   pushState();
 }
 
@@ -346,7 +382,9 @@ function stateChanged() {
   pushState();
 }
 
+// Called after every alerts round (every 5 s), changed or not.
 function nearbyChanged(list) {
+  follow?.update(alerts?.nearby() || []);
   if (JSON.stringify(list) === JSON.stringify(nearby)) return;
   nearby = list;
   pushState();
@@ -506,6 +544,7 @@ function quit() {
 
 app.on('before-quit', () => {
   quitting = true;
+  if (settings && viewSaveTimer) saveMapView();
   stream?.stop();
 });
 
@@ -524,6 +563,12 @@ ipcMain.on('ui:toolbar-set', (_event, { key, value }) => {
     alertRadiusKm: setAlertRadius,
     closeToTray: setCloseToTray,
     fpsLimit: setFpsLimit,
+    follow: (mode) => {
+      if (!FOLLOW_MODES.includes(mode)) return;
+      settings.follow = mode;
+      follow.stopIfInactive();
+      stateChanged();
+    },
     streamEnabled: (v) => setStreamOption('enabled', v),
     streamArea: (v) => setStreamOption('area', v),
     streamLayers: (v) => setStreamOption('layers', v),
@@ -744,6 +789,13 @@ if (!app.requestSingleInstanceLock()) {
     pip = setupPip(overlay);
     locations = setupLocations(overlay);
     alerts = setupAlerts(overlay, locations);
+    follow = setupFollow({
+      settings,
+      // Straight to the page: following must not bring a hidden window back.
+      mapCommand: (command) => basePage().send('map-command', command),
+      currentView: () => lastViews[settings.base] || null,
+      streamWatched: () => Boolean(streamState.running && streamState.viewers > 0),
+    });
     menu = setupMenu(overlay);
     settingsWin = setupSettings(overlay, locations, alerts);
     stream = setupStream(overlay, () => pip.area());

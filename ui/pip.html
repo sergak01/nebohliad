@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:" />
+    <title>Nebohliad PiP</title>
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      /* The whole widget drags the window; buttons opt out. */
+      body { -webkit-app-region: drag; }
+      canvas { display: block; width: 100%; height: 100%; }
+      #controls {
+        position: fixed; top: 6px; right: 6px; display: flex; gap: 4px;
+        opacity: 0; transition: opacity 0.15s;
+      }
+      body:hover #controls { opacity: 1; }
+      button {
+        -webkit-app-region: no-drag; width: 26px; height: 26px; padding: 0;
+        border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+        font: 15px/1 "Segoe UI", system-ui, sans-serif; cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); }
+      #stale {
+        position: fixed; left: 6px; bottom: 6px; padding: 3px 7px; display: none;
+        background: var(--panel); color: var(--error); font: 12px "Segoe UI", system-ui, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="controls">
+      <button id="show-main" type="button" data-i18n-title="pip.showMain">⤢</button>
+      <button id="close" type="button" data-i18n-title="pip.close">×</button>
+    </div>
+    <div id="stale" data-i18n="pip.stale"></div>
+    <script src="i18n.js"></script>
+    <script src="pip.js"></script>
+  </body>
+</html>

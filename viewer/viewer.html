@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="__LANG__">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Added to the home screen, the page opens without browser bars. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="__APP__" />
+    <meta name="theme-color" content="#111318" />
+    <link rel="manifest" href="manifest.webmanifest?t=__TOKEN__" />
+    <link rel="icon" href="icon.png" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+    <link rel="stylesheet" href="viewer.css" />
+    <title>__TITLE__</title>
+  </head>
+  <body>
+    <video id="video" playsinline muted autoplay></video>
+    <img id="img" alt="" />
+    <!-- Keep-awake fallback: a tiny local video that keeps playing. -->
+    <video id="awake" playsinline muted></video>
+    <div id="status" class="bar"></div>
+    <div id="updated" class="bar"></div>
+    <div id="controls" class="bar">
+      <div class="seg" id="modes">
+        <button data-mode="webrtc"></button>
+        <button data-mode="mjpeg"></button>
+        <button data-mode="snap"></button>
+      </div>
+      <button id="notify-btn">🔔</button>
+      <button id="awake-btn"></button>
+      <button id="autofs-btn"></button>
+      <button id="fullscreen-btn"></button>
+    </div>
+    <!-- Notification settings (stored in this browser only). -->
+    <div id="notify-panel" class="bar" hidden>
+      <div class="panel-title" id="notify-heading"></div>
+      <label><input type="checkbox" id="opt-toasts" /> <span id="lbl-toasts"></span></label>
+      <label><input type="checkbox" id="opt-browser" /> <span id="lbl-browser"></span></label>
+      <div class="hint" id="browser-hint"></div>
+      <div class="panel-title" id="kinds-heading"></div>
+      <label><input type="checkbox" id="opt-drone" /> <span id="lbl-drone"></span></label>
+      <label><input type="checkbox" id="opt-target" /> <span id="lbl-target"></span></label>
+      <label><input type="checkbox" id="opt-alert" /> <span id="lbl-alert"></span></label>
+      <div class="row"><button id="notify-test"></button><button id="notify-close"></button></div>
+    </div>
+    <div id="toasts"></div>
+    <!-- New page code on the computer: reload (no way to dismiss). -->
+    <div id="update" class="modal" hidden>
+      <div class="modal-box" role="alertdialog" aria-modal="true" aria-labelledby="update-title">
+        <h2 id="update-title"></h2>
+        <p id="update-text"></p>
+        <button id="update-reload" class="active"></button>
+      </div>
+    </div>
+    <div id="notice" class="bar"></div>
+    <script>
+      window.NEBOHLIAD = __CONFIG__;
+    </script>
+    <script src="viewer.js"></script>
+  </body>
+</html>

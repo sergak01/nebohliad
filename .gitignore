@@ -1,0 +1,21 @@
+node_modules/
+dist/
+
+# Signing material never belongs in the repo.
+*.pfx
+*.p12
+*.dpapi
+
+# Personal data and local leftovers (home locations, logs, secrets).
+*.cer
+.nebohliad-signing/
+settings.json
+search-history.json
+*.log
+.env*
+.claude/settings.local.json
+
+# Internal notes: agent instructions, notes about the author's PCs and the
+# pre-publication legal review. Kept locally, not published.
+CLAUDE.md
+docs/publication-review.md

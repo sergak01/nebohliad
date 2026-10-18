@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <title>Nebohliad notice</title>
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: var(--panel); color: var(--fg); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+      #box { border: 1px solid var(--line); border-top: 4px solid var(--accent); padding: 18px 22px 18px; }
+      h1 { margin: 0 0 4px; font-size: 18px; }
+      .lead { margin: 0 0 12px; color: var(--muted); }
+      ul { margin: 0 0 12px; padding-left: 20px; }
+      li { margin: 6px 0; }
+      .shelter { margin: 0 0 12px; font-weight: 600; }
+      .legal { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
+      .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+      .seg { display: inline-flex; border: 1px solid var(--line); }
+      .seg button { height: 26px; padding: 0 10px; border: 0; background: var(--chip); color: var(--fg); font: inherit; font-size: 12px; cursor: pointer; }
+      .seg button + button { border-left: 1px solid var(--line); }
+      .seg button.active { background: var(--accent); color: var(--on-accent); }
+      #confirm {
+        height: 34px; padding: 0 18px; border: 0; background: var(--accent); color: var(--on-accent);
+        font: inherit; font-weight: 600; cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="box">
+      <h1 data-i18n="notice.title"></h1>
+      <p class="lead" data-i18n="notice.lead"></p>
+      <ul>
+        <li data-i18n="notice.notAll"></li>
+        <li data-i18n="notice.delay"></li>
+        <li data-i18n="notice.alerts"></li>
+        <li data-i18n="notice.official"></li>
+      </ul>
+      <p class="shelter" data-i18n="notice.shelter"></p>
+      <p class="legal" data-i18n="notice.legal"></p>
+      <div class="row">
+        <div class="seg" id="lang">
+          <button data-lang="uk">Українська</button>
+          <button data-lang="en">English</button>
+        </div>
+        <button id="confirm"></button>
+      </div>
+    </div>
+    <script src="i18n.js"></script>
+    <script src="notice.js"></script>
+  </body>
+</html>

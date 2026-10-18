@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" />
+    <title>Nebohliad settings</title>
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="controls.css" />
+    <style>
+      html, body { height: 100%; overflow: hidden; }
+      body { display: flex; background: var(--bg); }
+      nav { width: 190px; flex: none; padding: 14px 10px; border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 2px; }
+      nav button { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 6px; color: var(--muted); cursor: pointer; }
+      nav button:hover { background: var(--hover); color: var(--fg); }
+      nav button.active { background: var(--chip-active); color: var(--fg); box-shadow: inset 3px 0 0 var(--accent); }
+      nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+      nav .grow { flex: 1; }
+      nav .version { color: var(--muted); font-size: 11px; padding: 0 10px; }
+      main { flex: 1; overflow-y: auto; padding: 18px 24px 28px; }
+      .page { max-width: 640px; }
+      .page[hidden] { display: none; }
+      h1 { font-size: 20px; font-weight: 600; margin: 0 0 14px; }
+      #locations li { display: flex; align-items: center; gap: 6px; padding: 7px 0; }
+      #locations li + li { border-top: 1px solid var(--line); }
+      #locations input[type=text] { flex: 1; min-width: 0; border-color: transparent; background: transparent; }
+      #locations input[type=text]:hover { border-color: var(--line); }
+      #locations input[type=text]:focus { border-color: var(--accent); background: var(--bg); }
+      #locations .region { color: var(--muted); font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      button.star { color: var(--muted); }
+      button.star.active { color: var(--accent); }
+      #results li { padding: 7px 10px; cursor: pointer; border-radius: 6px; }
+      #results li:hover { background: var(--hover); }
+      .stream-links { display: flex; gap: 16px; align-items: flex-start; padding: 12px 0; }
+      #stream-qr { width: 132px; height: 132px; background: #fff; padding: 6px; border-radius: 6px; flex: none; }
+      .urls li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+      .urls li .url { font: 12.5px Consolas, monospace; }
+      .urls li .name { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #stream-more { margin: 4px 0 6px; color: var(--muted); font-size: 12px; }
+      #stream-more summary { cursor: pointer; padding: 2px 0; }
+      #stream-more[open] .urls { opacity: 0.75; }
+      button.star.active svg.i { fill: currentColor; }
+      #stream-code { font: 600 22px Consolas, monospace; letter-spacing: 0.08em; color: var(--accent); }
+      ul.sources { padding-left: 18px; margin: 4px 0 0; }
+      ul.sources li { margin: 3px 0; }
+      table.keys { width: 100%; border-collapse: collapse; }
+      table.keys th { text-align: left; font-weight: 400; color: var(--muted); font-size: 12px; padding: 10px 0 6px; border-bottom: 1px solid var(--line); }
+      table.keys td { padding: 6px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+      table.keys tr:last-child td { border-bottom: 0; }
+      table.keys td.keys { width: 170px; padding-right: 8px; }
+      table.keys td.actions { width: 1%; white-space: nowrap; text-align: right; }
+      table.keys td.actions button { margin-left: 4px; }
+      kbd { display: inline-block; padding: 3px 8px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--chip); font: 12.5px "Segoe UI", system-ui, sans-serif; }
+      kbd.off { color: var(--muted); border-style: dashed; background: transparent; }
+      kbd.recording { border-color: var(--accent); color: var(--accent); }
+      table.keys .note { display: block; font-size: 11px; margin-top: 3px; }
+      table.keys .note.error { color: var(--error); }
+    </style>
+  </head>
+  <body>
+    <nav id="nav">
+      <button data-page="maps"><svg class="i"><use href="#i-map" /></svg><span data-i18n="settings.maps"></span></button>
+      <button data-page="locations"><svg class="i"><use href="#i-pin" /></svg><span data-i18n="settings.locations"></span></button>
+      <button data-page="stream"><svg class="i"><use href="#i-broadcast" /></svg><span data-i18n="settings.stream"></span></button>
+      <button data-page="look"><svg class="i"><use href="#i-palette" /></svg><span data-i18n="settings.look"></span></button>
+      <button data-page="shortcuts"><svg class="i"><use href="#i-keyboard" /></svg><span data-i18n="settings.shortcuts"></span></button>
+      <button data-page="system"><svg class="i"><use href="#i-cpu" /></svg><span data-i18n="settings.system"></span></button>
+      <button data-page="about"><svg class="i"><use href="#i-info" /></svg><span data-i18n="settings.about"></span></button>
+      <div class="grow"></div>
+      <div class="version" id="nav-version"></div>
+    </nav>
+
+    <main>
+      <!-- Maps -->
+      <section class="page" data-page="maps">
+        <h1 data-i18n="settings.maps"></h1>
+        <div class="card">
+          <div class="row">
+            <div class="text"><span data-i18n="settings.maps.base"></span><span class="desc" data-i18n="settings.maps.base.desc"></span></div>
+            <div class="seg" id="base"></div>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="menu.topLayer"></span><span class="desc" data-i18n="settings.maps.top.desc"></span></div>
+            <div class="seg">
+              <button id="targets-only" data-i18n="toolbar.targetsOnly" data-i18n-title="toolbar.targetsOnly.title"></button>
+              <button id="full-page" data-i18n="toolbar.fullPage" data-i18n-title="toolbar.fullPage.title"></button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="menu.opacity"></span><span class="desc" data-i18n="settings.maps.opacity.desc"></span></div>
+            <input id="opacity" type="range" min="10" max="100" step="10" />
+            <span id="opacity-value" class="value"></span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="text"><span data-i18n="settings.maps.reload"></span><span class="desc" data-i18n="settings.maps.reload.desc"></span></div>
+            <button class="bordered" id="reload" data-i18n="settings.maps.reload.button" data-i18n-title="toolbar.reload.title"></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Locations and alerts -->
+      <section class="page" data-page="locations" hidden>
+        <h1 data-i18n="settings.locations.title"></h1>
+        <p class="hint" data-i18n="menu.locations.hint"></p>
+        <div class="card">
+          <ul id="locations"></ul>
+          <p class="hint" id="no-locations" data-i18n="menu.locations.none"></p>
+          <div class="row">
+            <input id="location-query" type="text" class="grow" autocomplete="off" spellcheck="false" data-i18n-placeholder="menu.locations.add" />
+            <button class="bordered" id="add-center" data-i18n="menu.locations.addCenter" data-i18n-title="menu.locations.addCenter.title"></button>
+          </div>
+          <div id="location-status" class="hint"></div>
+          <ul id="results"></ul>
+          <p id="search-attribution" class="hint small" data-i18n="search.attribution"></p>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="text"><span data-i18n="settings.alerts.enabled"></span><span class="desc" data-i18n="menu.alerts.hint"></span></div>
+            <button class="switch" id="alerts-enabled" role="switch"></button>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="menu.alerts.radius"></span></div>
+            <input id="radius" type="number" min="1" max="500" step="1" />
+            <span data-i18n="menu.km"></span>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="menu.alerts.test"></span><span class="desc" id="alerts-status" data-i18n="menu.about.notOfficial"></span></div>
+            <button class="bordered" id="alerts-test" data-i18n="settings.alerts.test.button"></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- LAN stream -->
+      <section class="page" data-page="stream" hidden>
+        <h1 data-i18n="stream.title"></h1>
+        <div class="card">
+          <div class="row">
+            <div class="text"><span data-i18n="settings.stream.enabled"></span><span class="desc" id="stream-status"></span></div>
+            <button class="switch" id="stream-enabled" role="switch"></button>
+          </div>
+          <div id="stream-links" hidden>
+            <div class="stream-links">
+              <img id="stream-qr" alt="" />
+              <div class="grow">
+                <p class="hint" data-i18n="stream.open"></p>
+                <ul class="urls" id="stream-urls"></ul>
+                <details id="stream-more">
+                  <summary id="stream-more-label"></summary>
+                  <ul class="urls" id="stream-urls-virtual"></ul>
+                </details>
+                <div class="row compact" data-i18n-title="stream.code.title">
+                  <div class="text"><span data-i18n="stream.code"></span><span class="desc" data-i18n="settings.stream.code.desc"></span></div>
+                  <span id="stream-code"></span>
+                  <span class="value" id="stream-code-left"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="text"><span data-i18n="stream.quality"></span></div>
+            <div class="seg" id="stream-quality">
+              <button data-value="low" data-i18n="stream.quality.low" data-i18n-title="stream.quality.low.title"></button>
+              <button data-value="standard" data-i18n="stream.quality.standard" data-i18n-title="stream.quality.standard.title"></button>
+              <button data-value="high" data-i18n="stream.quality.high" data-i18n-title="stream.quality.high.title"></button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="stream.area"></span></div>
+            <div class="seg" id="stream-area">
+              <button data-value="full" data-i18n="stream.area.full"></button>
+              <button data-value="pip" data-i18n="stream.area.pip" data-i18n-title="stream.area.pip.title"></button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="stream.layers"></span></div>
+            <div class="seg" id="stream-layers">
+              <button data-value="both" data-i18n="stream.layers.both"></button>
+              <button data-value="base" data-i18n="stream.layers.base"></button>
+              <button data-value="top" data-i18n="stream.layers.top"></button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <div class="text"><span data-i18n="stream.port"></span><span class="desc" data-i18n="stream.port.title"></span></div>
+            <input id="stream-port" type="number" min="1024" max="65535" step="1" />
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="stream.newLink"></span><span class="desc" data-i18n="stream.newLink.title"></span></div>
+            <button class="bordered" id="stream-new-link" data-i18n="settings.stream.newLink.button"></button>
+          </div>
+        </div>
+        <p class="hint" data-i18n="stream.hint"></p>
+        <p class="hint" data-i18n="stream.qr"></p>
+      </section>
+
+      <!-- Look -->
+      <section class="page" data-page="look" hidden>
+        <h1 data-i18n="settings.look"></h1>
+        <div class="card">
+          <div class="row">
+            <div class="text"><span data-i18n="settings.look.theme"></span><span class="desc" data-i18n="settings.look.sites"></span></div>
+            <div class="seg" id="theme">
+              <button data-theme="system" data-i18n="menu.theme.system"></button>
+              <button data-theme="light" data-i18n="menu.theme.light"></button>
+              <button data-theme="dark" data-i18n="menu.theme.dark"></button>
+            </div>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="settings.look.lang"></span><span class="desc" data-i18n="settings.look.lang.desc"></span></div>
+            <div class="seg" id="lang">
+              <button data-lang="uk">Українська</button>
+              <button data-lang="en">English</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Shortcuts -->
+      <section class="page" data-page="shortcuts" hidden>
+        <h1 data-i18n="settings.shortcuts.title"></h1>
+        <p class="hint" data-i18n="settings.shortcuts.hint"></p>
+        <div class="card">
+          <table class="keys">
+            <thead>
+              <tr><th data-i18n="settings.shortcuts.action"></th><th data-i18n="settings.shortcuts.keys"></th><th></th></tr>
+            </thead>
+            <tbody id="shortcuts"></tbody>
+          </table>
+        </div>
+        <button class="bordered" id="shortcuts-reset-all" data-i18n="settings.shortcuts.resetAll"></button>
+      </section>
+
+      <!-- System -->
+      <section class="page" data-page="system" hidden>
+        <h1 data-i18n="settings.system"></h1>
+        <div class="card">
+          <div class="row">
+            <div class="text"><span data-i18n="menu.app.closeToTray"></span><span class="desc" data-i18n="menu.app.closeToTray.title"></span></div>
+            <button class="switch" id="close-to-tray" role="switch"></button>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="menu.app.fps"></span><span class="desc" data-i18n="menu.app.fps.title"></span></div>
+            <div class="seg" id="fps">
+              <button data-fps="10">10</button>
+              <button data-fps="15">15</button>
+              <button data-fps="20">20</button>
+              <button data-fps="30">30</button>
+              <button data-fps="60">∞</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- About -->
+      <section class="page" data-page="about" hidden>
+        <h1 data-i18n="settings.about.title"></h1>
+        <div class="card">
+          <div class="row">
+            <div class="text"><strong id="about-name"></strong><span class="desc"><span data-i18n="menu.about.version"></span> <span id="about-version"></span> · Serhii Shpak · <span data-i18n="menu.about.license"></span>: <span id="about-license"></span></span></div>
+            <a class="button bordered" id="about-homepage" href="#" data-i18n="menu.about.project"></a>
+          </div>
+          <div class="row">
+            <div class="text"><span class="error" data-i18n="menu.about.notOfficial"></span></div>
+            <button class="bordered" id="show-notice" data-i18n="menu.about.showNotice"></button>
+          </div>
+        </div>
+        <div class="card">
+          <p class="hint" data-i18n="menu.about.independent"></p>
+          <p class="hint" style="margin-bottom: 0" data-i18n="menu.about.sources"></p>
+          <ul class="hint sources">
+            <li data-i18n="menu.about.src.sites"></li>
+            <li><a href="https://www.openstreetmap.org/copyright" data-i18n="menu.about.src.osm"></a></li>
+            <li><a href="https://www.openmaptiles.org/" data-i18n="menu.about.src.omt"></a></li>
+            <li><a href="https://nominatim.org/" data-i18n="menu.about.src.nominatim"></a></li>
+          </ul>
+        </div>
+      </section>
+    </main>
+    <script src="icons.js"></script>
+    <script src="i18n.js"></script>
+    <script src="settings.js"></script>
+  </body>
+</html>

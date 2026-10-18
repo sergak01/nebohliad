@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <title>Nebohliad</title>
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="controls.css" />
+    <style>
+      html, body { height: 100%; overflow: hidden; background: var(--bg); line-height: 1; }
+      body { display: flex; align-items: center; gap: 6px; padding: 0 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+      .label { color: var(--muted); margin-right: 2px; }
+      .sep { width: 1px; height: 20px; background: var(--line); flex: none; margin: 0 4px; }
+      .spacer { flex: 1; }
+      button.tool { width: 30px; height: 28px; padding: 0; background: transparent; border: 1px solid transparent; color: var(--fg); }
+      button.tool:hover { background: var(--hover); }
+      button.tool.active { background: var(--toggle-on); border-color: var(--accent); color: var(--accent); }
+      button.tool svg.i { width: 17px; height: 17px; }
+      #nearby { height: 28px; gap: 5px; border: 1px solid var(--error); background: transparent; color: var(--error); font-weight: 600; }
+      #nearby:hover { background: var(--hover); }
+    </style>
+  </head>
+  <body>
+    <span class="label" data-i18n="toolbar.base" data-i18n-title="toolbar.base.title"></span>
+    <div class="seg" id="base" data-i18n-title="toolbar.base.title"></div>
+    <div class="sep"></div>
+    <button class="tool" id="top-shown"><svg class="i"><use href="#i-layers" /></svg></button>
+    <button class="tool" id="interact" data-i18n-title="toolbar.interact.title"><svg class="i"><use href="#i-hand" /></svg></button>
+    <button class="tool" id="map-only" data-i18n-title="toolbar.mapOnly.title"><svg class="i"><use href="#i-maximize" /></svg></button>
+    <div class="spacer"></div>
+    <button id="nearby" hidden><svg class="i"><use href="#i-alert" /></svg><span id="nearby-count"></span></button>
+    <button class="tool" id="home"><svg class="i"><use href="#i-home" /></svg></button>
+    <button class="tool" id="search" data-i18n-title="toolbar.search.title"><svg class="i"><use href="#i-search" /></svg></button>
+    <button class="tool" id="pip" data-i18n-title="toolbar.pip.title"><svg class="i"><use href="#i-pip" /></svg></button>
+    <button class="tool" id="menu" data-i18n-title="toolbar.menu.title"><svg class="i"><use href="#i-dots" /></svg></button>
+    <script src="icons.js"></script>
+    <script src="i18n.js"></script>
+    <script src="toolbar.js"></script>
+  </body>
+</html>

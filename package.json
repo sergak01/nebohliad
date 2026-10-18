@@ -1,0 +1,80 @@
+{
+  "name": "nebohliad",
+  "productName": "Nebohliad",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Небогляд: дві мапи повітряних загроз України в одному вікні",
+  "author": "Serhii Shpak",
+  "license": "MIT",
+  "homepage": "https://github.com/sergak01/nebohliad",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sergak01/nebohliad.git"
+  },
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "dist:dir": "electron-builder --win --dir",
+    "dist:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dist-signed.ps1",
+    "make-cert": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-signing-cert.ps1"
+  },
+  "build": {
+    "appId": "com.nebohliad.app",
+    "productName": "Nebohliad",
+    "copyright": "© 2026 Serhii Shpak",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "package.json",
+      "LICENSE",
+      "*.js",
+      "ui/**",
+      "viewer/**",
+      "assets/*.png",
+      "assets/icon.ico"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nebohliad",
+      "uninstallDisplayName": "Nebohliad",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Nebohliad-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Nebohliad-${version}-portable.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
+}

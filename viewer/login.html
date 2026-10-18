@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="__LANG__">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#111318" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="icon" href="icon.png" />
+    <link rel="stylesheet" href="viewer.css" />
+    <title>__TITLE__</title>
+  </head>
+  <body class="login">
+    <form id="login-form" class="login-box" autocomplete="off">
+      <img src="icon-192.png" alt="" width="64" height="64" />
+      <h1 id="login-title"></h1>
+      <p class="login-error" id="login-expired" hidden></p>
+      <p class="hint" id="login-text"></p>
+      <input
+        id="login-code"
+        name="code"
+        inputmode="numeric"
+        autocomplete="one-time-code"
+        maxlength="300"
+        required
+        autofocus
+      />
+      <button type="submit" id="login-submit" class="active"></button>
+      <p class="login-error" id="login-error" aria-live="polite"></p>
+    </form>
+    <div id="notice" class="bar"></div>
+    <script>
+      window.NEBOHLIAD = __CONFIG__;
+    </script>
+    <script src="login.js"></script>
+  </body>
+</html>

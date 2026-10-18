@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <title>Nebohliad search</title>
+    <link rel="stylesheet" href="theme.css" />
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: var(--panel); color: var(--fg); font: 14px/1.35 "Segoe UI", system-ui, sans-serif; }
+      #box { border: 1px solid var(--line); }
+      #q {
+        width: 100%; padding: 13px 14px; border: 0; outline: none;
+        background: transparent; color: var(--fg); font: inherit; font-size: 16px;
+      }
+      #q::placeholder { color: var(--muted); }
+      #status { padding: 0 14px 10px; color: var(--muted); font-size: 12px; }
+      #status:empty { display: none; }
+      #status.error { color: var(--error); }
+      ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+      ul:empty { display: none; }
+      li { padding: 8px 14px; cursor: pointer; display: flex; gap: 8px; }
+      li .kind { color: var(--muted); flex: none; width: 14px; }
+      li.selected, li:hover { background: var(--hover); }
+      li.selected { box-shadow: inset 3px 0 var(--accent); }
+      footer {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 6px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px;
+      }
+      button {
+        background: none; border: 1px solid var(--line); color: var(--fg);
+        font: inherit; font-size: 12px; padding: 3px 8px; cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); }
+      [hidden] { display: none !important; }
+      .attribution { font-size: 11px; opacity: 0.8; }
+    </style>
+  </head>
+  <body>
+    <div id="box">
+      <input id="q" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="search.placeholder" />
+      <div id="status"></div>
+      <ul id="results"></ul>
+      <footer>
+        <span><span data-i18n="search.hint"></span><br /><span class="attribution" data-i18n="search.attribution"></span></span>
+        <button id="clear-pin" type="button" data-i18n="search.clearPin" hidden></button>
+      </footer>
+    </div>
+    <script src="i18n.js"></script>
+    <script src="search.js"></script>
+  </body>
+</html>

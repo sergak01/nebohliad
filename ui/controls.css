@@ -1,0 +1,52 @@
+/* Shared controls for the toolbar, the ⋯ menu and the settings window.
+   Colors come from theme.css. */
+* { box-sizing: border-box; }
+html, body { margin: 0; color: var(--fg); font: 13px/1.4 "Segoe UI", system-ui, sans-serif; }
+body { user-select: none; }
+[hidden] { display: none !important; }
+a { color: var(--fg); }
+
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+button, a.button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 11px; border: 0; border-radius: 6px;
+  background: var(--chip); color: var(--fg); font: inherit; cursor: pointer; text-decoration: none; white-space: nowrap;
+}
+button:hover, a.button:hover { background: var(--hover); }
+button:focus-visible, a.button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.bordered, a.button.bordered { border: 1px solid var(--line); }
+button:disabled { opacity: 0.4; cursor: default; }
+button.icon { width: 28px; padding: 0; }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex: none; }
+.seg button { border-radius: 0; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.active { background: var(--accent); color: var(--on-accent); }
+
+/* On/off switch: <button class="switch" role="switch" aria-checked="true|false"> */
+.switch { display: inline-block; width: 38px; height: 22px; padding: 0; border-radius: 11px; background: var(--switch-off); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left 0.15s; }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"]::after { left: 19px; }
+
+input[type=text], input[type=number] {
+  height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--fg); font: inherit; outline: none; user-select: text;
+}
+input[type=text]:focus, input[type=number]:focus { border-color: var(--accent); }
+input[type=number] { width: 84px; }
+input[type=range] { width: 180px; accent-color: var(--accent); }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px 14px; margin-bottom: 12px; }
+.row { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 0; }
+.card > .row + .row, .card > div + .row { border-top: 1px solid var(--line); }
+.row.compact { min-height: 0; padding: 6px 0; }
+.row .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .desc { color: var(--muted); font-size: 12px; }
+.grow { flex: 1; }
+.value { color: var(--muted); min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.hint { color: var(--muted); font-size: 12px; margin: 6px 0; }
+.hint.small { font-size: 11px; }
+.error { color: var(--error); }
+ul { list-style: none; margin: 0; padding: 0; }

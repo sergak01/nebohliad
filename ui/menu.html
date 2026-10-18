@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <title>Nebohliad menu</title>
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="controls.css" />
+    <style>
+      html, body { background: var(--panel); overflow: hidden; }
+      #box { border: 1px solid var(--line); padding: 5px; }
+      .item {
+        all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 10px;
+        height: 32px; padding: 0 10px; border-radius: 6px; cursor: pointer;
+      }
+      .item:hover, .item:focus-visible { background: var(--hover); outline: none; }
+      .item:disabled { opacity: 0.4; cursor: default; background: none; }
+      .item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .item .key { color: var(--muted); font-size: 11px; }
+      .item .switch { pointer-events: none; transform: scale(0.85); transform-origin: right center; }
+      .sep { height: 1px; background: var(--line); margin: 5px 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="box" role="menu">
+      <button class="item" id="settings" role="menuitem">
+        <svg class="i"><use href="#i-settings" /></svg><span class="label" data-i18n="menu.settings"></span><span class="key" data-shortcut="settings"></span>
+      </button>
+      <div class="sep"></div>
+      <button class="item" id="alerts" role="menuitemcheckbox">
+        <svg class="i"><use href="#i-bell" /></svg><span class="label" data-i18n="menu.alertsToggle"></span><span class="switch-holder"></span>
+      </button>
+      <button class="item" id="stream" role="menuitemcheckbox">
+        <svg class="i"><use href="#i-broadcast" /></svg><span class="label" id="stream-label"></span><span class="switch-holder"></span>
+      </button>
+      <button class="item" id="copy-link" role="menuitem">
+        <svg class="i"><use href="#i-copy" /></svg><span class="label" data-i18n="menu.copyLink"></span>
+      </button>
+      <button class="item" id="reload" role="menuitem">
+        <svg class="i"><use href="#i-refresh" /></svg><span class="label" data-i18n="menu.reloadMaps"></span><span class="key" data-shortcut="reload"></span>
+      </button>
+      <div class="sep"></div>
+      <button class="item" id="notice" role="menuitem">
+        <svg class="i"><use href="#i-shield" /></svg><span class="label" data-i18n="menu.about.showNotice"></span>
+      </button>
+      <button class="item" id="about" role="menuitem">
+        <svg class="i"><use href="#i-info" /></svg><span class="label" data-i18n="menu.aboutApp"></span>
+      </button>
+      <button class="item" id="quit" role="menuitem">
+        <svg class="i"><use href="#i-power" /></svg><span class="label" data-i18n="menu.quit"></span>
+      </button>
+    </div>
+    <script src="icons.js"></script>
+    <script src="i18n.js"></script>
+    <script src="menu.js"></script>
+  </body>
+</html>

@@ -2,6 +2,11 @@
 # scripts\make-signing-cert.ps1. electron-builder reads the certificate from
 # WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD; they are set for this build only.
 #
+# Not for PCs with Smart App Control on (Windows 11): it blocks a file with a
+# self-signed certificate outright, while it judges an unsigned one
+# (`npm run dist`) by reputation and usually lets it run. With a certificate
+# from a trusted CA, point WIN_CSC_LINK at it instead.
+#
 # Usage: npm run dist:signed
 
 $ErrorActionPreference = 'Stop'

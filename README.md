@@ -91,9 +91,13 @@ npm start          # запуск
 npm run dist       # інсталятор і портативна версія в dist/
 ```
 
-Готових збірок немає: зберіть самі. Підписування — лише вашим власним
-сертифікатом (`npm run make-cert`, потім `npm run dist:signed`); жодних
-файлів підпису в репозиторії немає.
+Готових збірок немає: зберіть самі. Збірка не підписана. Якщо в Windows 11
+увімкнено Smart App Control, він оцінює непідписаний файл за репутацією й
+зазвичай пропускає його, а файл із самопідписаним сертифікатом блокує без
+можливості запустити. Тому самопідписування (`npm run make-cert`, потім
+`npm run dist:signed`) має сенс лише на ПК без Smart App Control або з
+сертифікатом довіреного центру сертифікації. Жодних файлів підпису в
+репозиторії немає.
 
 ## Обмеження
 Застосунок залежить від внутрішньої розмітки обох сайтів (назви шарів мапи,
@@ -202,9 +206,13 @@ npm start          # run
 npm run dist       # installer and portable build in dist/
 ```
 
-There are no prebuilt releases: build it yourself. Sign only with your own
-certificate (`npm run make-cert`, then `npm run dist:signed`); no signing
-files are in the repository.
+There are no prebuilt releases: build it yourself. The build is unsigned. If
+Smart App Control is on in Windows 11, it judges an unsigned file by
+reputation and usually lets it run, but it blocks a file with a self-signed
+certificate with no way to run it. So self-signing (`npm run make-cert`, then
+`npm run dist:signed`) only makes sense on PCs without Smart App Control, or
+with a certificate from a trusted certificate authority. No signing files are
+in the repository.
 
 ### Limitations
 The app depends on both sites' internal markup (map layer names, storage keys,

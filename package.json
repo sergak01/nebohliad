@@ -67,7 +67,8 @@
       "artifactName": "Nebohliad-Setup-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "Nebohliad-${version}-portable.${ext}"
+      "artifactName": "Nebohliad-${version}-portable.${ext}",
+      "unpackDirName": "Nebohliad"
     }
   },
   "devDependencies": {

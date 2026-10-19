@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, BaseWindow, WebContentsView, Menu, clipboard, globalShortcut, ipcMain, nativeTheme, shell, webContents } = require('electron');
+const { app, BaseWindow, WebContentsView, Menu, clipboard, globalShortcut, ipcMain, nativeTheme, powerMonitor, shell, webContents } = require('electron');
 const { loadSettings, saveSettings, LANGS, THEMES, FPS_LIMITS } = require('./settings');
 const { setupSearch } = require('./search-window');
 const { setupPip } = require('./pip-window');
@@ -820,4 +820,17 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.on('will-quit', () => globalShortcut.unregisterAll());
+
+// After sleep the GPU device is often reset: the stream's WebRTC video went
+// black (MJPEG kept working) until the window was shown again. Give the
+// stream a fresh compositor once the system has settled.
+const RESUME_SETTLE_MS = 4000;
+app.whenReady().then(() => {
+  for (const event of ['resume', 'unlock-screen']) {
+    powerMonitor.on(event, () => setTimeout(() => stream?.resetVideo(event), RESUME_SETTLE_MS));
+  }
+});
+app.on('child-process-gone', (_event, details) => {
+  if (details.type === 'GPU') stream?.resetVideo('GPU process gone');
+});
 app.on('window-all-closed', () => app.quit());

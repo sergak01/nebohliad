@@ -339,6 +339,31 @@ function setupStream(overlay, getPipArea) {
 
   // Draws a frame in the compositor (which feeds WebRTC); returns a JPEG
   // when `needJpeg` (MJPEG viewers, snapshots).
+  // After sleep or a GPU reset the canvas's video track can go black while
+  // JPEG readback of the same canvas still works (MJPEG fine, WebRTC black).
+  // A fresh compositor (new canvas, GPU context and track) fixes it; WebRTC
+  // viewers reconnect by themselves, MJPEG just gets the next frame.
+  let lastVideoReset = 0;
+  const VIDEO_RESET_MIN_MS = 20_000;
+
+  function resetVideo(reason) {
+    if (!compositor || compositor.isDestroyed()) return false;
+    if (Date.now() - lastVideoReset < VIDEO_RESET_MIN_MS) return false;
+    lastVideoReset = Date.now();
+    console.warn(`Stream video reset (${reason})`);
+    // Close the peers properly first, so viewers see it at once instead of
+    // after an ICE timeout, then drop the window ('closed' rejects pending
+    // frames and clears the peer count).
+    const old = compositor;
+    old.webContents.send('ui:webrtc-close-all');
+    setTimeout(() => {
+      if (!old.isDestroyed()) old.destroy();
+      overlay.streamChanged();
+      if (clients.size) loop();
+    }, 300);
+    return true;
+  }
+
   async function captureFrame(needJpeg) {
     await ensureCompositor();
     const area = captureArea();
@@ -578,7 +603,11 @@ function setupStream(overlay, getPipArea) {
       return res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Forbidden');
     }
 
-    if (url.pathname === '/auth') {
+    if (url.pathname === '/webrtc-reset') {
+      // A viewer saw only black video for a while.
+      if (req.method !== 'POST') return res.writeHead(405).end();
+      res.writeHead(resetVideo('viewer saw black video') ? 204 : 429, noStore).end();
+    } else if (url.pathname === '/auth') {
       // For a page to check a stored or current token.
       res.writeHead(204, noStore).end();
     } else if (url.pathname === '/') {
@@ -761,7 +790,7 @@ function setupStream(overlay, getPipArea) {
     return { running, error, viewers: viewers(), urls, qr, code: signInCode };
   }
 
-  return { apply, stop, newLink, state, broadcast };
+  return { apply, stop, newLink, state, broadcast, resetVideo };
 }
 
 module.exports = { setupStream, isLocalAddress, QUALITY, AREAS, LAYERS };

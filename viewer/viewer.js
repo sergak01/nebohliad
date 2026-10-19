@@ -140,6 +140,39 @@
     else startSnapshots();
   }
 
+  // Black-video watchdog (WebRTC). After the PC wakes from sleep its video
+  // can turn black while MJPEG still works. A real map frame is never all
+  // black (labels, attribution), so two all-black checks in a row ask the
+  // app for a fresh video source; it drops WebRTC viewers, and the
+  // connection handler above reconnects.
+  const probe = document.createElement('canvas');
+  probe.width = 32;
+  probe.height = 18;
+  const probeCtx = probe.getContext('2d', { willReadFrequently: true });
+  let blackChecks = 0;
+  const BLACK_MAX = 10;
+  setInterval(async () => {
+    if (mode !== 'webrtc' || pc?.connectionState !== 'connected' || video.readyState < 2 || document.hidden) {
+      blackChecks = 0;
+      return;
+    }
+    probeCtx.drawImage(video, 0, 0, probe.width, probe.height);
+    const data = probeCtx.getImageData(0, 0, probe.width, probe.height).data;
+    let max = 0;
+    for (let i = 0; i < data.length; i += 4) max = Math.max(max, data[i], data[i + 1], data[i + 2]);
+    blackChecks = max < BLACK_MAX ? blackChecks + 1 : 0;
+    if (blackChecks < 2) return;
+    blackChecks = 0;
+    try {
+      const response = await fetch(`webrtc-reset?t=${token}`, { method: 'POST', cache: 'no-store' });
+      // Reset just done for someone else: our connection may still carry the
+      // old track, so reconnect ourselves.
+      if (response.status === 429 && mode === 'webrtc') start();
+    } catch {
+      // The app is unreachable: the connection handler deals with it.
+    }
+  }, 5000);
+
   function setMode(next, { remember = true } = {}) {
     mode = next;
     if (remember) store.set('mode', mode);

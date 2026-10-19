@@ -81,6 +81,10 @@ function setupFollow(overlay) {
   return {
     update,
     viewChanged,
+    // The app moves the map itself (restoring a view): not the user.
+    expectMove: () => {
+      ownMoveUntil = Date.now() + OWN_MOVE_MS;
+    },
     // While following, the saved map view is the one from before.
     isFollowing: () => following,
     savedView: () => savedView,

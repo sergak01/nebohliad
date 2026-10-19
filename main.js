@@ -280,12 +280,26 @@ ipcMain.on('map-ready', (event) => {
     homeShown = true;
     // The last view, else the primary location's region (first run).
     setTimeout(() => {
-      if (settings.mapView) basePage().send('map-command', { jump: true, ...settings.mapView });
+      if (settings.mapView) jumpTo(settings.mapView);
       else locations?.show();
+      startupViewSet = true;
+    }, HOME_DELAY_MS);
+  } else if (viewBeforeReload && event.sender === basePage()) {
+    // "Reload maps": the site comes back with its own saved view; put ours back.
+    const view = viewBeforeReload;
+    viewBeforeReload = null;
+    setTimeout(() => {
+      jumpTo(view);
       startupViewSet = true;
     }, HOME_DELAY_MS);
   }
 });
+
+// Our own move of the base map to a saved view (not a move by the user).
+function jumpTo(view) {
+  follow?.expectMove();
+  basePage().send('map-command', { jump: true, center: view.center, zoom: view.zoom, bearing: view.bearing || 0, pitch: view.pitch || 0 });
+}
 
 // What each page shows: HUD on/off for both, targets-only for the overlay,
 // and the language and resolved theme where the site supports them.
@@ -522,7 +536,24 @@ function setClickThrough(enabled) {
   stateChanged();
 }
 
+// The base map's view is kept and restored once it is ready again; until
+// then its views are not saved (the site first shows its own saved view).
+const RELOAD_RESTORE_GIVE_UP_MS = 30_000;
+let viewBeforeReload = null;
+let reloadGiveUpTimer = null;
+
 function reloadPages() {
+  viewBeforeReload = lastViews[settings.base] || settings.mapView;
+  if (viewBeforeReload) {
+    startupViewSet = false;
+    clearTimeout(viewSaveTimer);
+    // A page that never gets ready must not stop views being saved for good.
+    clearTimeout(reloadGiveUpTimer);
+    reloadGiveUpTimer = setTimeout(() => {
+      viewBeforeReload = null;
+      startupViewSet = true;
+    }, RELOAD_RESTORE_GIVE_UP_MS);
+  }
   for (const view of Object.values(pages)) view.webContents.reload();
 }
 

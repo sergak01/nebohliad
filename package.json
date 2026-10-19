@@ -16,6 +16,7 @@
     "start": "electron .",
     "dist": "node scripts/build-info.js && electron-builder --win",
     "dist:dir": "node scripts/build-info.js && electron-builder --win --dir",
+    "dist:local": "npm run dist:dir && node scripts/stock-exe.js",
     "dist:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dist-signed.ps1",
     "make-cert": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-signing-cert.ps1"
   },

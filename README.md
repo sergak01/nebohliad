@@ -92,6 +92,7 @@
 npm install
 npm start          # запуск
 npm run dist       # інсталятор і портативна версія в dist/
+npm run dist:local # лише dist/win-unpacked для цього ПК (див. нижче)
 ```
 
 Готових збірок немає: зберіть самі. Збірка не підписана. Якщо в Windows 11
@@ -101,6 +102,11 @@ npm run dist       # інсталятор і портативна версія �
 `npm run dist:signed`) має сенс лише на ПК без Smart App Control або з
 сертифікатом довіреного центру сертифікації. Жодних файлів підпису в
 репозиторії немає.
+
+Свіжа збірка — це щоразу новий, невідомий Microsoft файл, тож Smart App
+Control може заблокувати й непідписану. `npm run dist:local` збирає лише
+`dist/win-unpacked` і ставить замість `Nebohliad.exe` незмінений `electron.exe`,
+який Windows знає; запускайте `dist/win-unpacked/Nebohliad.exe`.
 
 ## Обмеження
 Застосунок залежить від внутрішньої розмітки обох сайтів (назви шарів мапи,
@@ -211,6 +217,7 @@ Requires Node.js and Windows.
 npm install
 npm start          # run
 npm run dist       # installer and portable build in dist/
+npm run dist:local # only dist/win-unpacked, for this PC (see below)
 ```
 
 There are no prebuilt releases: build it yourself. The build is unsigned. If
@@ -220,6 +227,11 @@ certificate with no way to run it. So self-signing (`npm run make-cert`, then
 `npm run dist:signed`) only makes sense on PCs without Smart App Control, or
 with a certificate from a trusted certificate authority. No signing files are
 in the repository.
+
+Each fresh build is a new file Microsoft has never seen, so Smart App Control
+may block even an unsigned one. `npm run dist:local` builds only
+`dist/win-unpacked` and puts the unmodified `electron.exe`, a file Windows knows,
+in place of `Nebohliad.exe`; run `dist/win-unpacked/Nebohliad.exe`.
 
 ### Limitations
 The app depends on both sites' internal markup (map layer names, storage keys,

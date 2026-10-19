@@ -19,6 +19,7 @@ const { setupMenu } = require('./menu-window');
 const { setupSettings } = require('./settings-window');
 const { setupShortcuts } = require('./shortcuts');
 const { setupFollow, MODES: FOLLOW_MODES } = require('./follow');
+const { setupVersionCheck } = require('./version-check');
 const { setupTray } = require('./tray');
 const { setupNotice } = require('./notice-window');
 const { setupStream, QUALITY, AREAS, LAYERS } = require('./stream-server');
@@ -121,6 +122,7 @@ let trayAnnounced = false;
 let homeShown = false; // The start-up view is set once.
 const HOME_DELAY_MS = 1500; // Let the base site finish restoring its own view.
 let follow = null;
+let versionCheck = null;
 let viewSaveTimer = null;
 // Views are saved only after the start-up view is set: before that the base
 // site reports its own restored view, which must not replace ours.
@@ -243,6 +245,33 @@ function scheduleViewSave() {
   viewSaveTimer = setTimeout(saveMapView, VIEW_SAVE_DELAY_MS);
 }
 
+// The sites' own notices about their target data (preload.js `notice`):
+// site id -> text. Shown in the toolbar and on the stream's frames, only for
+// a site that is on screen there. The site clears its notice by itself when
+// its data comes back (no reload needed).
+const siteNotices = {};
+
+function noticesFor(shown) {
+  return Object.entries(siteNotices)
+    .filter(([site]) => shown(site))
+    .map(([site, text]) => ({ site, text }));
+}
+
+// The sites in the stream's frames (settings.stream.layers).
+function streamShows(site) {
+  const layers = settings.stream.layers;
+  return layers === 'both' || (layers === 'base' ? site === settings.base : site !== settings.base);
+}
+ipcMain.on('site-notice', (event, text) => {
+  const site = siteOf(event.sender);
+  if (!site) return;
+  const value = typeof text === 'string' && text ? text.slice(0, 300) : null;
+  if ((siteNotices[site] || null) === value) return;
+  if (value) siteNotices[site] = value;
+  else delete siteNotices[site];
+  pushState();
+});
+
 ipcMain.on('map-ready', (event) => {
   realignMaps();
   if (pin) event.sender.send('map-pin', pin);
@@ -340,6 +369,9 @@ function pushState() {
   state.fpsLimit = settings.fpsLimit;
   state.shortcuts = shortcuts?.list() || [];
   state.follow = settings.follow;
+  state.updateCheck = settings.updateCheck;
+  state.siteNotices = noticesFor((site) => site === settings.base || topShown);
+  state.update = versionCheck?.state() || null;
   state.about = { version: APP_VERSION, homepage: HOMEPAGE, license: LICENSE };
   const { token, ...streamSettings } = settings.stream; // The token is in the URLs.
   state.stream = { ...streamSettings, ...streamState };
@@ -563,6 +595,11 @@ ipcMain.on('ui:toolbar-set', (_event, { key, value }) => {
     alertRadiusKm: setAlertRadius,
     closeToTray: setCloseToTray,
     fpsLimit: setFpsLimit,
+    updateCheck: (enabled) => {
+      settings.updateCheck = Boolean(enabled);
+      stateChanged();
+      versionCheck.check();
+    },
     follow: (mode) => {
       if (!FOLLOW_MODES.includes(mode)) return;
       settings.follow = mode;
@@ -585,6 +622,7 @@ ipcMain.on('ui:toolbar-action', (_event, { name, data }) => {
     menu: () => menu.toggle(data),
     settings: () => settingsWin.open(data),
     quit,
+    'update-check': () => versionCheck.check(),
     home: () => locations.show(),
     'show-location': () => locations.show(data),
     'stream-new-link': () => {
@@ -712,6 +750,11 @@ const overlay = {
   nearbyChanged,
   streamChanged: () => refreshStream(),
   alertBanner: () => alerts?.banner() || null,
+  // "ukrainealarm: <the site's notice>" lines for the stream's frames.
+  noticeBanner: () =>
+    noticesFor(streamShows)
+      .map(({ site, text }) => `${SITES[site]?.label || site}: ${text}`)
+      .join('  ·  ') || null,
   // Events for LAN stream viewers (alerts.js → stream-server.js).
   streamEvent: (event) => stream?.broadcast(event),
   alertSnapshot: () => alerts?.snapshot() || [],
@@ -789,6 +832,7 @@ if (!app.requestSingleInstanceLock()) {
     pip = setupPip(overlay);
     locations = setupLocations(overlay);
     alerts = setupAlerts(overlay, locations);
+    versionCheck = setupVersionCheck({ settings, changed: pushState });
     follow = setupFollow({
       settings,
       // Straight to the page: following must not bring a hidden window back.

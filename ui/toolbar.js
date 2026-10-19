@@ -25,6 +25,16 @@ function render() {
   $('interact').disabled = !state.topShown;
   $('map-only').classList.toggle('active', state.hudHidden);
   $('home').disabled = !state.hasPrimary;
+  // The sites' own notices (their target data paused and the like).
+  const notices = state.siteNotices || [];
+  $('site-notice').hidden = notices.length === 0;
+  if (notices.length) {
+    $('site-notice-text').textContent = notices.map((n) => `${t(`site.${n.site}`)}: ${n.text}`).join(' · ');
+    $('site-notice').title = `${t('toolbar.siteNotice.title')}\n\n${notices.map((n) => `${t(`site.${n.site}`)}: ${n.text}`).join('\n')}`;
+  }
+  const updateReady =['behind', 'diverged'].includes(state.update?.status);
+  $('menu').classList.toggle('has-update', updateReady);
+  $('menu').title = updateReady ? `${t('toolbar.menu.title')} · ${t('update.badge')}` : t('toolbar.menu.title');
   $('home').title = t(state.hasPrimary ? 'toolbar.home.title' : 'toolbar.home.none');
   renderNearby();
 }

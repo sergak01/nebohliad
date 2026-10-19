@@ -14,8 +14,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win",
-    "dist:dir": "electron-builder --win --dir",
+    "dist": "node scripts/build-info.js && electron-builder --win",
+    "dist:dir": "node scripts/build-info.js && electron-builder --win --dir",
     "dist:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dist-signed.ps1",
     "make-cert": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-signing-cert.ps1"
   },
@@ -29,6 +29,7 @@
     },
     "files": [
       "package.json",
+      "build-info.json",
       "LICENSE",
       "*.js",
       "ui/**",

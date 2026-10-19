@@ -80,7 +80,8 @@
 ## Приватність
 Телеметрії немає. Мережеві запити йдуть лише до двох сайтів і їхніх
 сторонніх сервісів (Cloudflare, Google Analytics/Tag Manager, OpenFreeMap) та
-до Nominatim (лише під час пошуку). Локації й історія пошуку зберігаються
+до Nominatim (лише під час пошуку) та до api.github.com (перевірка, чи є
+новіша версія коду; вимикається в налаштуваннях). Локації й історія пошуку зберігаються
 локально в `%APPDATA%\Nebohliad`. Трансляція, коли її увімкнено, приймає
 підключення лише з локальної мережі й лише за посиланням із ключем.
 
@@ -198,7 +199,8 @@ will be removed: please open an [issue](https://github.com/sergak01/nebohliad/is
 ### Privacy
 No telemetry. Network requests go only to the two sites and their third-party
 services (Cloudflare, Google Analytics/Tag Manager, OpenFreeMap) and to
-Nominatim (only when searching). Locations and search history stay local in
+Nominatim (only when searching), and to api.github.com (checking for a newer
+version of the code; can be turned off in the settings). Locations and search history stay local in
 `%APPDATA%\Nebohliad`. The stream, when turned on, accepts connections only
 from the local network and only with a link that carries a key.
 

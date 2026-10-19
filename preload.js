@@ -63,6 +63,8 @@ const SITE_RULES = {
     // not hide it. Not `.popup`: `.popup.region` is a permanent full-page
     // container, and shown above the map it takes every click.
     modals: ['dialog[open]'],
+    // Shown while the site's target data is paused (map maintenance).
+    notice: '#public-target-data-status',
     // Targets are DOM markers inside the map container; no style layer is a
     // target except a possible heat layer.
     targetLayers: '(heat|target|cloud)',
@@ -120,6 +122,37 @@ function enableSafetyDismissal(rules) {
 
 const rules = SITE_RULES[location.hostname];
 if (rules) setupPageCleanup(rules);
+
+// The site's own notice about its target data (e.g. ukrainealarm: "Ми
+// оновлюємо карту. Відображення цілей буде відновлено найближчим часом.").
+// Map-only mode hides it, so its text goes to main, which shows it in the
+// toolbar and the stream. Checked every few seconds; only changes are sent.
+const SITE_NOTICE_MS = 3000;
+
+function watchSiteNotice(selector) {
+  let last;
+  const read = () => {
+    const el = document.querySelector(selector);
+    if (!el || el.hidden || getComputedStyle(el).display === 'none' || !el.getBoundingClientRect().height) return null;
+    // textContent: map-only mode makes it visibility:hidden, and innerText
+    // skips hidden text.
+    return el.textContent.replace(/\s+/g, ' ').trim() || null;
+  };
+  const check = () => {
+    const text = read();
+    if (text === last) return;
+    last = text;
+    ipcRenderer.send('site-notice', text);
+  };
+  const start = () => {
+    check();
+    setInterval(check, SITE_NOTICE_MS);
+  };
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+}
+
+if (rules?.notice) watchSiteNotice(rules.notice);
 
 // --- Map view sync -------------------------------------------------------
 

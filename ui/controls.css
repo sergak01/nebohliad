@@ -49,4 +49,6 @@ input[type=range] { width: 180px; accent-color: var(--accent); }
 .hint { color: var(--muted); font-size: 12px; margin: 6px 0; }
 .hint.small { font-size: 11px; }
 .error { color: var(--error); }
+.accent, .row .desc.accent { color: var(--accent); }
+code { font: 12.5px Consolas, ui-monospace, monospace; }
 ul { list-style: none; margin: 0; padding: 0; }

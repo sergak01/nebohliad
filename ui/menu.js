@@ -30,6 +30,7 @@ function render() {
   $('stream').querySelector('.switch').setAttribute('aria-checked', String(s.enabled));
   $('stream-label').textContent = s.running && s.viewers ? `${t('menu.streamToggle')} · ${s.viewers}` : t('menu.streamToggle');
   $('copy-link').disabled = !(s.running && s.urls.length);
+  $('about-update').hidden = !['behind', 'diverged'].includes(state.update?.status);
 }
 
 $('settings').addEventListener('click', () => {

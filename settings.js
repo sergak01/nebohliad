@@ -36,6 +36,9 @@ const DEFAULTS = {
   // Center on a target near a location: 'off' | 'stream' (while someone
   // watches the LAN stream) | 'always' (follow.js).
   follow: 'off',
+  // Compare the running code with the newest commit on GitHub (one public API
+  // request on start and every 6 h; version-check.js).
+  updateCheck: true,
   // Changed global shortcuts only: { id: accelerator }, '' = off
   // (shortcuts.js has the ids and defaults).
   shortcuts: {},
@@ -70,6 +73,7 @@ function loadSettings(siteIds) {
   if (!(Number.isInteger(s.port) && s.port >= 1024 && s.port <= 65535)) s.port = DEFAULTS.stream.port;
   if (!Array.isArray(settings.locations)) settings.locations = [];
   if (!['off', 'stream', 'always'].includes(settings.follow)) settings.follow = DEFAULTS.follow;
+  if (typeof settings.updateCheck !== 'boolean') settings.updateCheck = DEFAULTS.updateCheck;
   const v = settings.mapView;
   if (!(v && Array.isArray(v.center) && v.center.length === 2 && v.center.every(Number.isFinite) && Number.isFinite(v.zoom))) settings.mapView = null;
   if (!settings.shortcuts || typeof settings.shortcuts !== 'object' || Array.isArray(settings.shortcuts)) settings.shortcuts = {};

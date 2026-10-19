@@ -1,0 +1,25 @@
+'use strict';
+
+// Writes build-info.json before a build: the commit the app is built from
+// (and whether there were uncommitted changes). The app compares that commit
+// with the repository on GitHub (version-check.js); a packaged app has no
+// .git to read it from.
+
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const git = (args) => execSync(`git ${args}`, { encoding: 'utf8' }).trim();
+
+let info = { commit: null, date: null, dirty: false };
+try {
+  info = {
+    commit: git('rev-parse HEAD'),
+    date: git('log -1 --format=%cI'),
+    dirty: git('status --porcelain --untracked-files=no') !== '',
+  };
+} catch (error) {
+  console.warn('build-info: git is not available, building without a commit:', error.message);
+}
+fs.writeFileSync(path.join(__dirname, '..', 'build-info.json'), `${JSON.stringify(info, null, 2)}\n`);
+console.log(`build-info: ${info.commit ? info.commit.slice(0, 7) : 'unknown'}${info.dirty ? ' + local changes' : ''}`);

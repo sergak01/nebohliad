@@ -64,6 +64,26 @@ function render() {
   renderLocations();
   renderStream();
   renderShortcuts();
+  renderUpdate();
+}
+
+// Whether this is the newest code on GitHub (version-check.js).
+function renderUpdate() {
+  const u = state.update;
+  setSwitch('update-enabled', state.updateCheck);
+  const local = u?.local;
+  const date = local?.date ? ` · ${new Date(local.date).toLocaleDateString(document.documentElement.lang)}` : '';
+  $('update-commit').textContent = local ? `${local.commit.slice(0, 7)}${date}${local.dirty ? ` ${t('update.dirty')}` : ''}` : '—';
+  let text = t(`update.status.${u?.status || 'unknown'}`).replace('{n}', u?.behindBy ?? '').replace('{error}', u?.error || '');
+  if (u?.checkedAt && u.status !== 'checking') {
+    text += ` · ${t('update.checked').replace('{time}', new Date(u.checkedAt).toLocaleTimeString(document.documentElement.lang, { hour: '2-digit', minute: '2-digit' }))}`;
+  }
+  $('update-status').textContent = text;
+  $('update-status').classList.toggle('accent', ['behind', 'diverged'].includes(u?.status));
+  const changes = ['behind', 'diverged'].includes(u?.status) && u.compareUrl;
+  $('update-changes').hidden = !changes;
+  if (changes) $('update-changes').href = u.compareUrl;
+  $('update-check').disabled = !state.updateCheck || u?.status === 'checking';
 }
 
 function iconButton(name, title, onClick, extraClass = '') {
@@ -388,6 +408,8 @@ $('close-to-tray').addEventListener('click', () => set('closeToTray', !state.clo
 for (const button of $('follow').children) button.addEventListener('click', () => set('follow', button.dataset.value));
 for (const button of $('fps').children) button.addEventListener('click', () => set('fpsLimit', Number(button.dataset.fps)));
 $('show-notice').addEventListener('click', () => overlay.send('ui:notice-open'));
+$('update-check').addEventListener('click', () => action('update-check'));
+$('update-enabled').addEventListener('click', () => set('updateCheck', !state.updateCheck));
 $('stream-enabled').addEventListener('click', () => set('streamEnabled', !state.stream.enabled));
 for (const [id, key] of [['stream-area', 'streamArea'], ['stream-layers', 'streamLayers'], ['stream-quality', 'streamQuality']]) {
   for (const button of $(id).children) button.addEventListener('click', () => set(key, button.dataset.value));

@@ -19,3 +19,6 @@ search-history.json
 # pre-publication legal review. Kept locally, not published.
 CLAUDE.md
 docs/publication-review.md
+
+# Written by scripts/build-info.js before each build.
+build-info.json

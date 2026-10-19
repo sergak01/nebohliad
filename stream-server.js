@@ -384,6 +384,7 @@ function setupStream(overlay, getPipArea) {
         // draw our own only when that corner is not in the frame.
         attribution: !(bottom && !area),
         banner: overlay.alertBanner(),
+        notice: overlay.noticeBanner(),
         bottom: bottom ? bottom.toJPEG(90) : null,
         // PNG keeps the transparency of the targets-only top layer.
         top: top ? top.toPNG() : null,

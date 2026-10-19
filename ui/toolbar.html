@@ -18,6 +18,13 @@
       button.tool svg.i { width: 17px; height: 17px; }
       #nearby { height: 28px; gap: 5px; border: 1px solid var(--error); background: transparent; color: var(--error); font-weight: 600; }
       #nearby:hover { background: var(--hover); }
+      /* A site's own notice (e.g. its targets are paused). */
+      #site-notice { height: 28px; gap: 6px; max-width: 46vw; border: 1px solid var(--accent); background: var(--toggle-on); color: var(--fg); cursor: default; }
+      #site-notice span { overflow: hidden; text-overflow: ellipsis; }
+      #site-notice svg.i { color: var(--accent); }
+      /* A newer version on GitHub: a dot on the menu button. */
+      #menu { position: relative; }
+      #menu.has-update::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
     </style>
   </head>
   <body>
@@ -28,6 +35,7 @@
     <button class="tool" id="interact" data-i18n-title="toolbar.interact.title"><svg class="i"><use href="#i-hand" /></svg></button>
     <button class="tool" id="map-only" data-i18n-title="toolbar.mapOnly.title"><svg class="i"><use href="#i-maximize" /></svg></button>
     <div class="spacer"></div>
+    <button id="site-notice" hidden><svg class="i"><use href="#i-pause" /></svg><span id="site-notice-text"></span></button>
     <button id="nearby" hidden><svg class="i"><use href="#i-alert" /></svg><span id="nearby-count"></span></button>
     <button class="tool" id="home"><svg class="i"><use href="#i-home" /></svg></button>
     <button class="tool" id="search" data-i18n-title="toolbar.search.title"><svg class="i"><use href="#i-search" /></svg></button>

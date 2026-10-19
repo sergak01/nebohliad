@@ -52,7 +52,20 @@ function drawBanner(text, scale) {
   ctx.fillText(text, Math.round(10 * scale), height / 2, canvas.width - Math.round(20 * scale));
 }
 
-overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, attribution, banner, needJpeg }) => {
+// An amber strip with a site's own notice (e.g. its targets are paused),
+// under the alert banner when there is one.
+function drawNotice(text, scale, y) {
+  ctx.globalAlpha = 1;
+  const height = Math.round(26 * scale);
+  ctx.fillStyle = 'rgba(245, 179, 1, 0.92)';
+  ctx.fillRect(0, y, canvas.width, height);
+  ctx.fillStyle = '#111318';
+  ctx.font = `600 ${Math.round(13 * scale)}px "Segoe UI", system-ui, sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`⏸ ${text}`, Math.round(10 * scale), y + height / 2, canvas.width - Math.round(20 * scale));
+}
+
+overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, attribution, banner, notice, needJpeg }) => {
   try {
     const [base, layer] = await Promise.all([decode(bottom), decode(top)]);
     const source = base || layer;
@@ -76,6 +89,7 @@ overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, a
     const uiScale = Math.max(1, width / 1280);
     if (attribution) drawAttribution(uiScale);
     if (banner) drawBanner(banner, uiScale);
+    if (notice) drawNotice(notice, uiScale, banner ? Math.round(30 * uiScale) : 0);
     base?.close();
     layer?.close();
     if (peers.size) track.requestFrame();

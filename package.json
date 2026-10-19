@@ -24,6 +24,7 @@
     "appId": "com.nebohliad.app",
     "productName": "Nebohliad",
     "copyright": "© 2026 Serhii Shpak",
+    "afterPack": "scripts/after-pack.js",
     "directories": {
       "output": "dist",
       "buildResources": "assets"

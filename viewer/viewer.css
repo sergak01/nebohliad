@@ -142,3 +142,10 @@ body.login { overflow: auto; display: flex; align-items: center; justify-content
 .modal-box h2 { margin: 0 0 8px; font-size: 18px; }
 .modal-box p { margin: 0 0 16px; color: #c9ccd3; font-size: 14px; }
 .modal-box button { width: 100%; font-size: 16px; padding: 10px; border-radius: 6px; }.modal[hidden] { display: none; }
+
+/* Invite from the app: three numbers to pick from. */
+.pair { margin-top: 6px; padding: 14px; border: 1px solid #f5b301; border-radius: 10px; }
+.pair[hidden] { display: none; }
+.pair-title { margin: 0 0 10px; font-size: 15px; font-weight: 600; }
+.pair-choices { display: flex; gap: 10px; justify-content: center; }
+.pair-choices button { flex: 1; max-width: 96px; height: 64px; font: 600 28px/1 "Segoe UI", system-ui, sans-serif; border-radius: 8px; }

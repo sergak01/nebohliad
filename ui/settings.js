@@ -172,6 +172,48 @@ function renderStream() {
   $('stream-urls-virtual').replaceChildren(...folded.map(urlItem));
   if (s.qr) $('stream-qr').src = s.qr;
   renderStreamCode();
+  renderDevices();
+}
+
+// Devices waiting on the stream's sign-in page: invite one, and it must pick
+// the number shown here.
+function renderDevices() {
+  const devices = state?.stream?.devices || [];
+  $('stream-devices-none').hidden = devices.length > 0;
+  $('stream-devices').replaceChildren(
+    ...devices.map((d) => {
+      const li = document.createElement('li');
+      const who = document.createElement('span');
+      who.className = 'who';
+      who.textContent = d.device;
+      const ip = document.createElement('span');
+      ip.className = 'ip';
+      ip.textContent = ` ${d.address}`;
+      who.append(ip);
+      li.append(who);
+      if (d.invite) {
+        const number = document.createElement('span');
+        number.className = 'number';
+        number.textContent = String(d.invite.number);
+        number.title = t('stream.pair.number');
+        const left = document.createElement('span');
+        left.className = 'value';
+        left.textContent = `${Math.max(0, Math.ceil((d.invite.expiresAt - Date.now()) / 1000))} ${t('stream.pair.seconds')}`;
+        const cancel = document.createElement('button');
+        cancel.className = 'bordered';
+        cancel.textContent = t('stream.pair.cancel');
+        cancel.addEventListener('click', () => action('stream-invite-cancel', d.id));
+        li.append(number, left, cancel);
+      } else {
+        const invite = document.createElement('button');
+        invite.className = 'bordered';
+        invite.textContent = t('stream.pair.invite');
+        invite.addEventListener('click', () => action('stream-invite', d.id));
+        li.append(invite);
+      }
+      return li;
+    }),
+  );
 }
 
 // The sign-in code changes every 2 minutes (main pushes the new one); the
@@ -184,6 +226,7 @@ function renderStreamCode() {
 }
 setInterval(() => {
   if (state?.stream?.code) renderStreamCode();
+  if (state?.stream?.devices?.some((d) => d.invite)) renderDevices();
 }, 1000);
 
 // --- Shortcuts -----------------------------------------------------------------

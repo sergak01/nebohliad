@@ -149,6 +149,11 @@ const VIEWER_STRINGS = {
     loginWrong: 'Неправильний або прострочений код. Залишилося спроб: {n}.',
     loginLocked: 'Забагато спроб. Спробуй через {m} хв.',
     loginFailed: 'Не вдалося зв’язатися з Небоглядом. Чи він запущений і чи трансляція ввімкнена?',
+    pairText: 'Або запроси цей пристрій із застосунку: ⋯ → «Налаштування» → «Трансляція» → «Пристрої, що чекають» → «Запросити».',
+    pairPick: 'Обери число, яке показує Небогляд',
+    pairWrong: 'Не те число. Запроси пристрій ще раз.',
+    pairExpired: 'Запрошення минуло. Запроси пристрій ще раз.',
+    pairLeft: 'Ще {n} с',
     updateTitle: 'Сторінку оновлено',
     updateText: 'Небогляд на комп’ютері має нову версію цієї сторінки. Онови її, щоб усе працювало правильно.',
     updateButton: 'Оновити сторінку',
@@ -200,6 +205,11 @@ const VIEWER_STRINGS = {
     loginWrong: 'Wrong or expired code. Attempts left: {n}.',
     loginLocked: 'Too many attempts. Try again in {m} min.',
     loginFailed: 'Could not reach Nebohliad. Is it running with the stream on?',
+    pairText: 'Or invite this device from the app: ⋯ → \"Settings\" → \"Stream\" → \"Devices waiting\" → \"Invite\".',
+    pairPick: 'Pick the number Nebohliad shows',
+    pairWrong: 'Wrong number. Invite the device again.',
+    pairExpired: 'The invite expired. Invite the device again.',
+    pairLeft: '{n} s left',
     updateTitle: 'This page was updated',
     updateText: 'Nebohliad on the computer has a new version of this page. Reload it so everything works correctly.',
     updateButton: 'Reload page',
@@ -364,7 +374,19 @@ function setupStream(overlay, getPipArea) {
     return true;
   }
 
+  // The compositor is a renderer process (~100 MB with its canvas and video
+  // encoder): closed after a minute with no viewers and no frame requests,
+  // made again for the next one.
+  const COMPOSITOR_IDLE_MS = 60_000;
+  let lastFrameAt = 0;
+  setInterval(() => {
+    if (compositor && !compositor.isDestroyed() && viewers() === 0 && !pending.size && Date.now() - lastFrameAt > COMPOSITOR_IDLE_MS) {
+      compositor.destroy();
+    }
+  }, 15_000).unref?.();
+
   async function captureFrame(needJpeg) {
+    lastFrameAt = Date.now();
     await ensureCompositor();
     const area = captureArea();
     const layers = settings.stream.layers;
@@ -547,6 +569,106 @@ function setupStream(overlay, getPipArea) {
     return sendJson(res, 401, { left: Math.max(0, MAX_FAILS_PER_ADDRESS - count.address - 1) });
   }
 
+  // --- Pairing: invite a waiting device (like WPS on a router) ------------
+  // A device on the sign-in page reports itself every couple of seconds
+  // (`GET /pair?d=<its id>`); the app lists such devices and can invite one.
+  // The device then gets three numbers and must pick the one the app shows:
+  // the right one returns the stream key, a wrong one cancels the invite and
+  // counts as a failed sign-in (same limits as the code).
+
+  const PAIR_SEEN_MS = 10_000; // A waiting device polls every 2 s.
+  const INVITE_TTL_MS = 60_000;
+  const MAX_WAITING = 10;
+  const waiting = new Map(); // id -> { id, address, device, lastSeen, invite }
+
+  // "Android · Chrome" from a user agent.
+  function deviceLabel(ua = '') {
+    const os = /Android/i.test(ua) ? 'Android' : /iPhone/i.test(ua) ? 'iPhone' : /iPad/i.test(ua) ? 'iPad' : /Windows/i.test(ua) ? 'Windows' : /Mac OS X/i.test(ua) ? 'macOS' : /Linux/i.test(ua) ? 'Linux' : '';
+    const browser = /SamsungBrowser/i.test(ua) ? 'Samsung Internet' : /Edg\//i.test(ua) ? 'Edge' : /Firefox|FxiOS/i.test(ua) ? 'Firefox' : /Chrome|CriOS/i.test(ua) ? 'Chrome' : /Safari/i.test(ua) ? 'Safari' : '';
+    return [os, browser].filter(Boolean).join(' · ') || '?';
+  }
+
+  function pruneWaiting() {
+    const now = Date.now();
+    let changed = false;
+    for (const [id, entry] of waiting) {
+      if (now - entry.lastSeen > PAIR_SEEN_MS) {
+        waiting.delete(id);
+        changed = true;
+      } else if (entry.invite && now > entry.invite.expiresAt) {
+        entry.invite = null;
+        changed = true;
+      }
+    }
+    if (changed) overlay.streamChanged();
+  }
+  setInterval(pruneWaiting, 2000).unref?.();
+
+  // From the app: invite one waiting device. Returns its number or null.
+  function invite(id) {
+    pruneWaiting();
+    const entry = waiting.get(id);
+    if (!entry) return null;
+    const number = crypto.randomInt(10, 100);
+    const choices = new Set([number]);
+    while (choices.size < 3) choices.add(crypto.randomInt(10, 100));
+    const shuffled = [...choices];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = crypto.randomInt(0, i + 1);
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    entry.invite = { number, choices: shuffled, expiresAt: Date.now() + INVITE_TTL_MS };
+    overlay.streamChanged();
+    return number;
+  }
+
+  function cancelInvite(id) {
+    const entry = waiting.get(id);
+    if (entry?.invite) {
+      entry.invite = null;
+      overlay.streamChanged();
+    }
+  }
+
+  async function handlePair(req, res, url) {
+    const address = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+    const count = recentFails(address);
+    if (count.address >= MAX_FAILS_PER_ADDRESS || count.total >= MAX_FAILS_TOTAL) return sendJson(res, 429, {});
+    if (req.method === 'GET') {
+      const id = url.searchParams.get('d') || '';
+      if (!/^[A-Za-z0-9_-]{8,40}$/.test(id)) return sendJson(res, 400, {});
+      let entry = waiting.get(id);
+      if (!entry) {
+        if (waiting.size >= MAX_WAITING) return sendJson(res, 503, {});
+        entry = { id, address, device: deviceLabel(req.headers['user-agent']), invite: null };
+        waiting.set(id, entry);
+        overlay.streamChanged();
+      }
+      entry.lastSeen = Date.now();
+      entry.address = address;
+      const active = entry.invite && Date.now() < entry.invite.expiresAt ? entry.invite : null;
+      return sendJson(res, 200, { invite: active && { choices: active.choices, expiresInMs: active.expiresAt - Date.now() } });
+    }
+    if (req.method !== 'POST') return res.writeHead(405).end();
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req, MAX_LOGIN_BYTES));
+    } catch {
+      return sendJson(res, 400, {});
+    }
+    const entry = waiting.get(String(body.d || ''));
+    if (!entry?.invite || Date.now() > entry.invite.expiresAt) return sendJson(res, 409, {});
+    if (Number(body.choice) === entry.invite.number) {
+      waiting.delete(entry.id);
+      overlay.streamChanged();
+      return sendJson(res, 200, { token: settings.stream.token });
+    }
+    entry.invite = null;
+    fails.push({ address, at: Date.now() });
+    overlay.streamChanged();
+    return sendJson(res, 401, { wrong: true });
+  }
+
   function readBody(req, limit) {
     return new Promise((resolve, reject) => {
       const chunks = [];
@@ -593,6 +715,7 @@ function setupStream(overlay, getPipArea) {
         .end(fs.readFileSync(ICONS[url.pathname]));
     }
     if (url.pathname === '/login') return handleLogin(req, res);
+    if (url.pathname === '/pair') return handlePair(req, res, url);
     const token = url.searchParams.get('t');
     if (!tokenMatches(token)) {
       // The page itself offers to sign in with a code; everything else is closed.
@@ -748,6 +871,7 @@ function setupStream(overlay, getPipArea) {
     wakeLoop?.();
     closeViewers();
     clearCode();
+    waiting.clear();
     unwatchViewer();
     latestFrame = null;
     if (server) {
@@ -788,10 +912,14 @@ function setupStream(overlay, getPipArea) {
       : [];
     const qr = urls[0] ? await QRCode.toDataURL(urls[0].url, { margin: 1, width: 180 }) : null;
     const signInCode = running && code ? { value: code.value, expiresAt: code.expiresAt } : null;
-    return { running, error, viewers: viewers(), urls, qr, code: signInCode };
+    // Devices waiting on the sign-in page; an invited one with its number.
+    const devices = running
+      ? [...waiting.values()].map(({ id, address, device, invite: inv }) => ({ id, address, device, invite: inv && { number: inv.number, expiresAt: inv.expiresAt } }))
+      : [];
+    return { running, error, viewers: viewers(), urls, qr, code: signInCode, devices };
   }
 
-  return { apply, stop, newLink, state, broadcast, resetVideo };
+  return { apply, stop, newLink, state, broadcast, resetVideo, invite, cancelInvite };
 }
 
 module.exports = { setupStream, isLocalAddress, QUALITY, AREAS, LAYERS };

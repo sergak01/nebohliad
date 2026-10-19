@@ -40,6 +40,11 @@
       #stream-more[open] .urls { opacity: 0.75; }
       button.star.active svg.i { fill: currentColor; }
       #stream-code { font: 600 22px Consolas, monospace; letter-spacing: 0.08em; color: var(--accent); }
+      .devices { margin: 8px 0 4px; }
+      #stream-devices li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+      #stream-devices .who { flex: 1; min-width: 0; }
+      #stream-devices .ip { color: var(--muted); font-size: 12px; }
+      #stream-devices .number { font: 600 26px Consolas, monospace; color: var(--accent); letter-spacing: 0.06em; }
       ul.sources { padding-left: 18px; margin: 4px 0 0; }
       ul.sources li { margin: 3px 0; }
       table.keys { width: 100%; border-collapse: collapse; }
@@ -157,6 +162,11 @@
                   <summary id="stream-more-label"></summary>
                   <ul class="urls" id="stream-urls-virtual"></ul>
                 </details>
+                <div class="devices">
+                  <p class="hint" data-i18n="stream.pair.title"></p>
+                  <ul id="stream-devices"></ul>
+                  <p class="hint small" id="stream-devices-none" data-i18n="stream.pair.none"></p>
+                </div>
                 <div class="row compact" data-i18n-title="stream.code.title">
                   <div class="text"><span data-i18n="stream.code"></span><span class="desc" data-i18n="settings.stream.code.desc"></span></div>
                   <span id="stream-code"></span>

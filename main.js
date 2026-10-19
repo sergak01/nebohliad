@@ -70,7 +70,6 @@ const APP_NAMES = { uk: 'Небогляд', en: 'Nebohliad' };
 // WebRTC sender offers its real LAN address, so phones can connect without
 // resolving an mDNS name.
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,WebRtcHideLocalIpsWithMdns');
-
 // The app used to be called "maps-overlay", so its data (settings, locations,
 // site sessions) lived in %APPDATA%\maps-overlay. Copy it once into the new
 // userData folder; caches are skipped and the old folder is left untouched.
@@ -116,7 +115,7 @@ const lastViews = {}; // site id -> last view the page reported
 let tray = null;
 let notice = null;
 let stream = null;
-let streamState = { running: false, error: null, viewers: 0, urls: [], qr: null, code: null };
+let streamState = { running: false, error: null, viewers: 0, urls: [], qr: null, code: null, devices: [] };
 let quitting = false; // Set on a real quit, so 'close' does not hide to tray.
 let trayAnnounced = false;
 let homeShown = false; // The start-up view is set once.
@@ -142,6 +141,8 @@ function pageWebPreferences(partition) {
     contextIsolation: true,
     nodeIntegration: false,
     sandbox: true,
+    // No spellcheck dictionaries in memory: nothing here needs them.
+    spellcheck: false,
   };
 }
 
@@ -152,6 +153,7 @@ function uiWebPreferences() {
     contextIsolation: true,
     nodeIntegration: false,
     sandbox: true,
+    spellcheck: false,
   };
 }
 
@@ -390,7 +392,7 @@ function pushState() {
   const { token, ...streamSettings } = settings.stream; // The token is in the URLs.
   state.stream = { ...streamSettings, ...streamState };
   toolbarView?.webContents.send('ui:state', state);
-  menu?.webContents.send('ui:state', state);
+  menu?.webContents?.send('ui:state', state);
   settingsWin?.webContents?.send('ui:state', state);
   tray?.update({
     lang: settings.lang,
@@ -654,6 +656,9 @@ ipcMain.on('ui:toolbar-action', (_event, { name, data }) => {
     settings: () => settingsWin.open(data),
     quit,
     'update-check': () => versionCheck.check(),
+    // Invite a device waiting on the stream's sign-in page (stream-server.js).
+    'stream-invite': () => typeof data === 'string' && stream.invite(data),
+    'stream-invite-cancel': () => typeof data === 'string' && stream.cancelInvite(data),
     home: () => locations.show(),
     'show-location': () => locations.show(data),
     'stream-new-link': () => {

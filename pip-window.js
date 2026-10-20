@@ -8,6 +8,7 @@
 
 const path = require('path');
 const { BrowserWindow, ipcMain, screen } = require('electron');
+const log = require('./logger');
 
 const FRAME_INTERVAL_MS = 1000;
 const MAX_INITIAL_SIDE = 420;
@@ -115,7 +116,7 @@ function setupPip(overlay) {
         });
       }
     } catch (error) {
-      console.warn('PiP capture failed:', error.message);
+      log.warn('pip', 'capture failed', error.message);
     }
     if (pip) timer = setTimeout(captureFrame, FRAME_INTERVAL_MS);
   }

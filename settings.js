@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
+const log = require('./logger');
 
 const DEFAULTS = {
   base: 'ukrainealarm', // Site shown as the main (bottom) map.
@@ -39,6 +40,9 @@ const DEFAULTS = {
   // Compare the running code with the newest commit on GitHub (one public API
   // request on start and every 6 h; version-check.js).
   updateCheck: true,
+  // Quiet hours: silent notifications, no vibration or sound on viewers,
+  // except an air alert at the primary location (alerts.js quietNow).
+  quiet: { enabled: false, from: '23:00', to: '07:00' },
   // Changed global shortcuts only: { id: accelerator }, '' = off
   // (shortcuts.js has the ids and defaults).
   shortcuts: {},
@@ -74,6 +78,13 @@ function loadSettings(siteIds) {
   if (!Array.isArray(settings.locations)) settings.locations = [];
   if (!['off', 'stream', 'always'].includes(settings.follow)) settings.follow = DEFAULTS.follow;
   if (typeof settings.updateCheck !== 'boolean') settings.updateCheck = DEFAULTS.updateCheck;
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const q = settings.quiet;
+  settings.quiet = {
+    enabled: typeof q?.enabled === 'boolean' ? q.enabled : DEFAULTS.quiet.enabled,
+    from: time.test(q?.from) ? q.from : DEFAULTS.quiet.from,
+    to: time.test(q?.to) ? q.to : DEFAULTS.quiet.to,
+  };
   const v = settings.mapView;
   if (!(v && Array.isArray(v.center) && v.center.length === 2 && v.center.every(Number.isFinite) && Number.isFinite(v.zoom))) settings.mapView = null;
   if (!settings.shortcuts || typeof settings.shortcuts !== 'object' || Array.isArray(settings.shortcuts)) settings.shortcuts = {};
@@ -91,7 +102,7 @@ function saveSettings(settings) {
   try {
     fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2));
   } catch (error) {
-    console.warn('Could not save settings:', error.message);
+    log.warn('settings', 'could not save', error.message);
   }
 }
 

@@ -53,6 +53,9 @@ function render() {
   if (document.activeElement !== $('radius')) $('radius').value = state.alerts.radiusKm;
   setSwitch('close-to-tray', state.closeToTray);
   for (const button of $('follow').children) button.classList.toggle('active', button.dataset.value === state.follow);
+  setSwitch('quiet-enabled', state.quiet?.enabled);
+  if (document.activeElement !== $('quiet-from')) $('quiet-from').value = state.quiet?.from || '23:00';
+  if (document.activeElement !== $('quiet-to')) $('quiet-to').value = state.quiet?.to || '07:00';
   for (const button of $('fps').children) button.classList.toggle('active', Number(button.dataset.fps) === state.fpsLimit);
   $('about-name').textContent = t('app.name');
   $('about-version').textContent = state.about.version;
@@ -98,8 +101,10 @@ function iconButton(name, title, onClick, extraClass = '') {
 
 function renderLocations() {
   const list = $('locations');
-  // Keep the row being edited untouched.
-  if (list.contains(document.activeElement)) return;
+  // Keep a name or radius being edited untouched. Only for inputs: a clicked
+  // button (remove, primary) keeps the focus too, and skipping then left a
+  // removed location on screen.
+  if (list.contains(document.activeElement) && document.activeElement.matches('input')) return;
   $('no-locations').hidden = state.locations.length > 0;
   list.replaceChildren(
     ...state.locations.map((loc) => {
@@ -122,9 +127,30 @@ function renderLocations() {
       region.className = 'region';
       region.textContent = loc.region || '';
       region.title = loc.region || '';
+      // Its own alert radius; empty = the common one (shown as the placeholder).
+      const radius = document.createElement('input');
+      radius.type = 'number';
+      radius.className = 'radius';
+      radius.min = '1';
+      radius.max = '500';
+      radius.step = '1';
+      radius.value = loc.radiusKm ?? '';
+      radius.placeholder = String(state.alerts.radiusKm);
+      radius.title = t('settings.locations.radius');
+      radius.addEventListener('change', () => {
+        const km = radius.value === '' ? null : Math.round(Number(radius.value));
+        if (km !== null && !(km >= 1 && km <= 500)) {
+          radius.value = loc.radiusKm ?? '';
+          return;
+        }
+        overlay.send('ui:location-radius', { id: loc.id, km });
+      });
+      const km = document.createElement('span');
+      km.className = 'region';
+      km.textContent = t('menu.km');
       const show = iconButton('target', t('menu.locations.show'), () => overlay.send('ui:location-show', loc.id));
       const remove = iconButton('trash', t('menu.locations.remove'), () => overlay.send('ui:location-remove', loc.id));
-      li.append(primary, name, region, show, remove);
+      li.append(primary, name, region, radius, km, show, remove);
       return li;
     }),
   );
@@ -173,6 +199,28 @@ function renderStream() {
   if (s.qr) $('stream-qr').src = s.qr;
   renderStreamCode();
   renderDevices();
+  renderHealth();
+}
+
+// The video watchdog (stream-server.js): the last problem it fixed, else
+// when a viewer last reported that all was fine.
+function renderHealth() {
+  const h = state?.stream?.health;
+  $('stream-health-row').hidden = !h;
+  if (!h) return;
+  const time = (at) => new Date(at).toLocaleTimeString(document.documentElement.lang, { hour: '2-digit', minute: '2-digit' });
+  let text = t('stream.health.none');
+  const recentProblem = h.problem && (!h.okAt || h.problem.at > h.okAt - 10 * 60_000);
+  if (recentProblem) {
+    text = t('stream.health.problem')
+      .replace('{time}', time(h.problem.at))
+      .replace('{what}', t(`stream.health.${h.problem.what}`))
+      .replace('{fix}', t(`stream.health.${h.problem.fix}`));
+  } else if (h.okAt) {
+    text = t('stream.health.ok').replace('{time}', time(h.reportAt || h.okAt));
+  }
+  $('stream-health').textContent = text;
+  $('stream-health').classList.toggle('accent', Boolean(recentProblem));
 }
 
 // Devices waiting on the stream's sign-in page: invite one, and it must pick
@@ -449,8 +497,12 @@ $('alerts-test').addEventListener('click', async () => {
 });
 $('close-to-tray').addEventListener('click', () => set('closeToTray', !state.closeToTray));
 for (const button of $('follow').children) button.addEventListener('click', () => set('follow', button.dataset.value));
+$('quiet-enabled').addEventListener('click', () => set('quiet', { enabled: !state.quiet?.enabled }));
+$('quiet-from').addEventListener('change', (event) => set('quiet', { from: event.target.value }));
+$('quiet-to').addEventListener('change', (event) => set('quiet', { to: event.target.value }));
 for (const button of $('fps').children) button.addEventListener('click', () => set('fpsLimit', Number(button.dataset.fps)));
 $('show-notice').addEventListener('click', () => overlay.send('ui:notice-open'));
+$('open-logs').addEventListener('click', () => action('open-logs'));
 $('update-check').addEventListener('click', () => action('update-check'));
 $('update-enabled').addEventListener('click', () => set('updateCheck', !state.updateCheck));
 $('stream-enabled').addEventListener('click', () => set('streamEnabled', !state.stream.enabled));

@@ -36,6 +36,7 @@ input[type=text], input[type=number] {
 }
 input[type=text]:focus, input[type=number]:focus { border-color: var(--accent); }
 input[type=number] { width: 84px; }
+input[type=time] { height: 30px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; color-scheme: inherit; }
 input[type=range] { width: 180px; accent-color: var(--accent); }
 
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 2px 14px; margin-bottom: 12px; }

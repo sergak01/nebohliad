@@ -20,11 +20,13 @@ const { setupSettings } = require('./settings-window');
 const { setupShortcuts } = require('./shortcuts');
 const { setupFollow, MODES: FOLLOW_MODES } = require('./follow');
 const { setupVersionCheck } = require('./version-check');
+const { setupSiteHealth } = require('./site-health');
 const { setupTray } = require('./tray');
 const { setupNotice } = require('./notice-window');
 const { setupStream, QUALITY, AREAS, LAYERS } = require('./stream-server');
 const geocoder = require('./geocoder');
 const { version: APP_VERSION, homepage: HOMEPAGE, license: LICENSE } = require('./package.json');
+const log = require('./logger');
 
 // Map data attribution, shown on the base map in every mode (preload.js).
 const ATTRIBUTION_LINKS = [
@@ -88,7 +90,7 @@ function migrateLegacyUserData() {
   try {
     fs.cpSync(legacy, target, { recursive: true, filter: (src) => !SKIP_ON_MIGRATION.has(path.basename(src)) });
   } catch (error) {
-    console.warn('Could not copy data from the old maps-overlay folder:', error.message);
+    log.warn('app', 'could not copy data from the old maps-overlay folder', error.message);
   }
 }
 
@@ -122,6 +124,7 @@ let homeShown = false; // The start-up view is set once.
 const HOME_DELAY_MS = 1500; // Let the base site finish restoring its own view.
 let follow = null;
 let versionCheck = null;
+let siteHealth = null;
 let viewSaveTimer = null;
 // Views are saved only after the start-up view is set: before that the base
 // site reports its own restored view, which must not replace ours.
@@ -253,11 +256,53 @@ function scheduleViewSave() {
 // its data comes back (no reload needed).
 const siteNotices = {};
 
+// Our own notices next to the site's (site-health.js): its data stopped, or
+// a Cloudflare check waits for the user.
+const NOTICE_TEXT = {
+  uk: { stale: (m) => `дані не оновлюються ${m} хв`, challenge: 'просить пройти перевірку Cloudflare' },
+  en: { stale: (m) => `no new data for ${m} min`, challenge: 'asks for a Cloudflare check' },
+};
+
+// [{ site, kind: 'site' | 'challenge' | 'stale', text?, minutes? }] for the
+// sites `shown` accepts.
 function noticesFor(shown) {
-  return Object.entries(siteNotices)
-    .filter(([site]) => shown(site))
-    .map(([site, text]) => ({ site, text }));
+  const issues = siteHealth?.status() || {};
+  const list = [];
+  for (const site of SITE_IDS) {
+    if (!shown(site)) continue;
+    if (siteNotices[site]) list.push({ site, kind: 'site', text: siteNotices[site] });
+    if (issues[site]?.challenge) list.push({ site, kind: 'challenge' });
+    if (issues[site]?.staleMinutes) list.push({ site, kind: 'stale', minutes: issues[site].staleMinutes });
+  }
+  return list;
 }
+
+function noticeText(notice) {
+  const s = NOTICE_TEXT[settings.lang] || NOTICE_TEXT.uk;
+  if (notice.kind === 'stale') return s.stale(notice.minutes);
+  if (notice.kind === 'challenge') return s.challenge;
+  return notice.text;
+}
+
+ipcMain.on('site-challenge', (event, on) => {
+  const site = siteOf(event.sender);
+  if (site) siteHealth?.setChallenge(site, on);
+});
+
+// A click on the toolbar's notice chip: bring the Cloudflare check within
+// reach (interact with the top layer when it is there), or reload the maps
+// when a site's data stopped.
+function handleSiteNotices() {
+  const shownNow = noticesFor((site) => site === settings.base || topShown);
+  restoreMain();
+  if (shownNow.some((n) => n.kind === 'challenge' && n.site !== settings.base)) setClickThrough(false);
+  if (shownNow.some((n) => n.kind === 'stale')) reloadPages('site data stopped');
+}
+
+// The minutes in "no new data for N min" grow; refresh them while shown.
+setInterval(() => {
+  if (settings && Object.values(siteHealth?.status() || {}).some((s) => s.staleMinutes)) pushState();
+}, 60_000).unref?.();
 
 // The sites in the stream's frames (settings.stream.layers).
 function streamShows(site) {
@@ -375,6 +420,7 @@ function pushState() {
       id: loc.id,
       name: loc.name,
       region: loc.region,
+      radiusKm: loc.radiusKm || null, // Its own; null = the common radius.
       primary: loc.id === settings.primaryLocationId,
     })),
     hasPrimary: Boolean(locations?.primary()),
@@ -386,6 +432,7 @@ function pushState() {
   state.shortcuts = shortcuts?.list() || [];
   state.follow = settings.follow;
   state.updateCheck = settings.updateCheck;
+  state.quiet = { ...settings.quiet };
   state.siteNotices = noticesFor((site) => site === settings.base || topShown);
   state.update = versionCheck?.state() || null;
   state.about = { version: APP_VERSION, homepage: HOMEPAGE, license: LICENSE };
@@ -544,7 +591,9 @@ const RELOAD_RESTORE_GIVE_UP_MS = 30_000;
 let viewBeforeReload = null;
 let reloadGiveUpTimer = null;
 
-function reloadPages() {
+function reloadPages(reason = 'by the user') {
+  log.info('maps', 'reload', { reason: typeof reason === 'string' ? reason : 'by the user' });
+  for (const id of SITE_IDS) siteHealth?.reset(id);
   viewBeforeReload = lastViews[settings.base] || settings.mapView;
   if (viewBeforeReload) {
     startupViewSet = false;
@@ -628,6 +677,15 @@ ipcMain.on('ui:toolbar-set', (_event, { key, value }) => {
     alertRadiusKm: setAlertRadius,
     closeToTray: setCloseToTray,
     fpsLimit: setFpsLimit,
+    // Quiet hours: { enabled?, from?, to? } as "HH:MM".
+    quiet: (value) => {
+      if (!value || typeof value !== 'object') return;
+      const time = /^([01]\d|2[0-3]):[0-5]\d$/;
+      if (typeof value.enabled === 'boolean') settings.quiet.enabled = value.enabled;
+      if (time.test(value.from)) settings.quiet.from = value.from;
+      if (time.test(value.to)) settings.quiet.to = value.to;
+      stateChanged();
+    },
     updateCheck: (enabled) => {
       settings.updateCheck = Boolean(enabled);
       stateChanged();
@@ -656,6 +714,8 @@ ipcMain.on('ui:toolbar-action', (_event, { name, data }) => {
     settings: () => settingsWin.open(data),
     quit,
     'update-check': () => versionCheck.check(),
+    'open-logs': () => shell.openPath(log.dir()),
+    'site-notice': handleSiteNotices,
     // Invite a device waiting on the stream's sign-in page (stream-server.js).
     'stream-invite': () => typeof data === 'string' && stream.invite(data),
     'stream-invite-cancel': () => typeof data === 'string' && stream.cancelInvite(data),
@@ -681,12 +741,57 @@ function routeExternalLinks(webContents) {
   });
 }
 
+// A map page that crashed is reloaded; one that stops responding for
+// HUNG_MS is restarted. At most once per PAGE_FIX_EVERY_MS per page, so a
+// site that keeps failing does not loop.
+const HUNG_MS = 20_000;
+const PAGE_FIX_EVERY_MS = 5 * 60_000;
+
+function watchPage(siteId, contents) {
+  let hungTimer = null;
+  let lastFix = 0;
+  let fixTimer = null;
+  const fix = (why) => {
+    if (fixTimer) return; // A reload is already on its way.
+    // Soon after the last fix, wait out the rest of the interval instead.
+    const wait = Math.max(2000, lastFix + PAGE_FIX_EVERY_MS - Date.now());
+    log.warn('page', `${why}: reloading in ${Math.round(wait / 1000)} s`, { site: siteId });
+    fixTimer = setTimeout(() => {
+      fixTimer = null;
+      lastFix = Date.now();
+      siteHealth?.reset(siteId);
+      if (!contents.isDestroyed()) contents.reload();
+    }, wait);
+  };
+  contents.on('render-process-gone', (_event, details) => {
+    if (details.reason === 'clean-exit' || quitting) return;
+    fix(`renderer gone (${details.reason})`);
+  });
+  contents.on('unresponsive', () => {
+    log.warn('page', 'not responding', { site: siteId });
+    clearTimeout(hungTimer);
+    hungTimer = setTimeout(() => {
+      if (contents.isDestroyed()) return;
+      // A hung renderer cannot reload itself; crash it, and the
+      // 'render-process-gone' handler above reloads the page.
+      log.warn('page', 'still not responding: restarting it', { site: siteId });
+      contents.forcefullyCrashRenderer();
+    }, HUNG_MS);
+  });
+  contents.on('responsive', () => {
+    if (hungTimer) log.info('page', 'responding again', { site: siteId });
+    clearTimeout(hungTimer);
+    hungTimer = null;
+  });
+}
+
 function createPage(siteId) {
   const site = SITES[siteId];
   const view = new WebContentsView({ webPreferences: pageWebPreferences(site.partition) });
   routeExternalLinks(view.webContents);
+  watchPage(siteId, view.webContents);
   view.webContents.on('preload-error', (_event, _preloadPath, error) => {
-    console.error(`Preload failed in ${site.url}:`, error);
+    log.error('page', `preload failed in ${site.url}`, String(error?.stack || error));
   });
   view.webContents.loadURL(site.url);
   return view;
@@ -785,11 +890,13 @@ const overlay = {
   settingsChanged: stateChanged,
   nearbyChanged,
   streamChanged: () => refreshStream(),
+  // The stream's watchdog: a page capture keeps hanging.
+  reloadMaps: () => reloadPages('stream capture stalled'),
   alertBanner: () => alerts?.banner() || null,
   // "ukrainealarm: <the site's notice>" lines for the stream's frames.
   noticeBanner: () =>
     noticesFor(streamShows)
-      .map(({ site, text }) => `${SITES[site]?.label || site}: ${text}`)
+      .map((n) => `${SITES[n.site]?.label || n.site}: ${noticeText(n)}`)
       .join('  ·  ') || null,
   // Events for LAN stream viewers (alerts.js → stream-server.js).
   streamEvent: (event) => stream?.broadcast(event),
@@ -869,6 +976,9 @@ if (!app.requestSingleInstanceLock()) {
     locations = setupLocations(overlay);
     alerts = setupAlerts(overlay, locations);
     versionCheck = setupVersionCheck({ settings, changed: pushState });
+    const local = versionCheck.state().local;
+    log.info('app', 'start', { version: APP_VERSION, commit: local?.commit?.slice(0, 7) || null, packaged: app.isPackaged });
+    siteHealth = setupSiteHealth(Object.fromEntries(SITE_IDS.map((id) => [id, SITES[id].partition])), pushState);
     follow = setupFollow({
       settings,
       // Straight to the page: following must not bring a hidden window back.

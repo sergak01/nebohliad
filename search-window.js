@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const geocoder = require('./geocoder');
+const log = require('./logger');
 
 const HISTORY_SIZE = 8;
 const POINT_ZOOM = 11;
@@ -76,7 +77,7 @@ function setupSearch(overlay) {
     try {
       fs.writeFileSync(historyFile, JSON.stringify(history));
     } catch (error) {
-      console.warn('Could not save search history:', error.message);
+      log.warn('search', 'could not save history', error.message);
     }
   }
 

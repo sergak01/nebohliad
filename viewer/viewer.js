@@ -140,38 +140,110 @@
     else startSnapshots();
   }
 
-  // Black-video watchdog (WebRTC). After the PC wakes from sleep its video
-  // can turn black while MJPEG still works. A real map frame is never all
-  // black (labels, attribution), so two all-black checks in a row ask the
-  // app for a fresh video source; it drops WebRTC viewers, and the
-  // connection handler above reconnects.
+  // Picture watchdog. Every frame carries its number in a marker at the
+  // bottom-left edge (compositor.js): a strip of 10 cells, each width / 160,
+  // white, black, then 8 bits. Reading it back tells a frozen picture from a
+  // map that simply does not change; an all-black frame is caught too (after
+  // the PC wakes from sleep). The app gets a report every 30 s, and at once
+  // when the picture is stuck; it restarts the video if its frames are fine,
+  // and this page reconnects itself as well.
   const probe = document.createElement('canvas');
-  probe.width = 32;
-  probe.height = 18;
   const probeCtx = probe.getContext('2d', { willReadFrequently: true });
-  let blackChecks = 0;
+  const CHECK_MS = 5000;
+  const REPORT_MS = 30_000;
+  const FROZEN_MS = 15_000;
   const BLACK_MAX = 10;
+  let lastSeq = null;
+  let lastChangeAt = Date.now();
+  let blackChecks = 0;
+  let lastReportAt = 0;
+  let lastFixAt = 0;
+
+  // The frame source in view, or null when there is nothing to judge.
+  function frameSource() {
+    if (document.hidden) return null;
+    if (mode === 'webrtc') return pc?.connectionState === 'connected' && video.readyState >= 2 ? video : null;
+    if (mode === 'mjpeg') return img.naturalWidth ? img : null;
+    return null; // Snapshots change only every few seconds by design.
+  }
+
+  function readFrame(source) {
+    const width = source.videoWidth || source.naturalWidth;
+    const height = source.videoHeight || source.naturalHeight;
+    if (!width || !height) return null;
+    // The marker: 10 cells at the bottom-left, sampled at their centers.
+    const cell = Math.max(4, Math.round(width / 160));
+    probe.width = cell * 10;
+    probe.height = cell;
+    probeCtx.drawImage(source, 0, height - cell, cell * 10, cell, 0, 0, cell * 10, cell);
+    const row = probeCtx.getImageData(0, Math.floor(cell / 2), cell * 10, 1).data;
+    const level = (i) => {
+      const at = (i * cell + Math.floor(cell / 2)) * 4;
+      return (row[at] + row[at + 1] + row[at + 2]) / 3;
+    };
+    let seq = null;
+    if (level(0) > 160 && level(1) < 90) {
+      seq = 0;
+      for (let i = 2; i < 10; i++) seq = (seq << 1) | (level(i) > 128 ? 1 : 0);
+    }
+    // All black? A small copy of the whole frame.
+    probe.width = 32;
+    probe.height = 18;
+    probeCtx.drawImage(source, 0, 0, 32, 18);
+    const data = probeCtx.getImageData(0, 0, 32, 18).data;
+    let max = 0;
+    for (let i = 0; i < data.length; i += 4) max = Math.max(max, data[i], data[i + 1], data[i + 2]);
+    return { seq, black: max < BLACK_MAX };
+  }
+
+  async function report(body) {
+    lastReportAt = Date.now();
+    try {
+      const response = await fetch(`health?t=${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      return response.ok ? await response.json() : {};
+    } catch {
+      return {}; // The app is unreachable: the connection handlers deal with it.
+    }
+  }
+
   setInterval(async () => {
-    if (mode !== 'webrtc' || pc?.connectionState !== 'connected' || video.readyState < 2 || document.hidden) {
+    const source = frameSource();
+    if (!source) {
+      lastChangeAt = Date.now();
       blackChecks = 0;
       return;
     }
-    probeCtx.drawImage(video, 0, 0, probe.width, probe.height);
-    const data = probeCtx.getImageData(0, 0, probe.width, probe.height).data;
-    let max = 0;
-    for (let i = 0; i < data.length; i += 4) max = Math.max(max, data[i], data[i + 1], data[i + 2]);
-    blackChecks = max < BLACK_MAX ? blackChecks + 1 : 0;
-    if (blackChecks < 2) return;
-    blackChecks = 0;
+    let frame = null;
     try {
-      const response = await fetch(`webrtc-reset?t=${token}`, { method: 'POST', cache: 'no-store' });
-      // Reset just done for someone else: our connection may still carry the
-      // old track, so reconnect ourselves.
-      if (response.status === 429 && mode === 'webrtc') start();
+      frame = readFrame(source);
     } catch {
-      // The app is unreachable: the connection handler deals with it.
+      return; // Not readable right now.
     }
-  }, 5000);
+    if (!frame) return;
+    if (frame.seq !== null && frame.seq !== lastSeq) {
+      lastSeq = frame.seq;
+      lastChangeAt = Date.now();
+    }
+    blackChecks = frame.black ? blackChecks + 1 : 0;
+    const frozenMs = Date.now() - lastChangeAt;
+    const stuck = frozenMs >= FROZEN_MS || blackChecks >= 2;
+    if (stuck && Date.now() - lastFixAt > 60_000) {
+      lastFixAt = Date.now();
+      const answer = await report({ seq: lastSeq, frozenMs, black: blackChecks >= 2, mode });
+      // Reconnect ourselves too (the app may have restarted the video for
+      // someone else already, and kept our old connection).
+      if (mode === 'mjpeg' || !answer.reset) start();
+      lastChangeAt = Date.now();
+      blackChecks = 0;
+    } else if (Date.now() - lastReportAt >= REPORT_MS) {
+      report({ seq: lastSeq, frozenMs, black: false, mode });
+    }
+  }, CHECK_MS);
 
   function setMode(next, { remember = true } = {}) {
     mode = next;
@@ -328,6 +400,7 @@
   const prefs = {
     toasts: store.get('n.toasts', 'on') === 'on',
     browser: store.get('n.browser', 'off') === 'on',
+    sound: store.get('n.sound', 'on') === 'on',
     drone: store.get('n.drone', 'on') === 'on',
     target: store.get('n.target', 'on') === 'on',
     alert: store.get('n.alert', 'on') === 'on',
@@ -360,7 +433,40 @@
     while (toasts.children.length > 4) toasts.lastChild.remove();
     const isAlert = event.level === 'red' || event.level === 'yellow';
     setTimeout(() => el.remove(), isAlert ? 60_000 : 15_000);
-    if (!event.ongoing && navigator.vibrate) navigator.vibrate(isAlert ? [300, 150, 300, 150, 300] : [200]);
+    // Quiet hours (the app marks such events quiet) and the snapshot sent on
+    // connect neither vibrate nor beep.
+    if (!event.ongoing && !event.quiet && navigator.vibrate) navigator.vibrate(isAlert ? [300, 150, 300, 150, 300] : [200]);
+  }
+
+  // Short beeps (Web Audio, nothing to download): three for an air alert,
+  // two for a target nearby, one soft one for the all-clear. Browsers allow
+  // sound only after the page was touched, so the audio is unlocked then.
+  let audio = null;
+  const unlockAudio = () => {
+    try {
+      audio ||= new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === 'suspended') audio.resume();
+    } catch {
+      audio = null;
+    }
+  };
+  for (const type of ['pointerdown', 'keydown']) document.addEventListener(type, unlockAudio, { passive: true });
+
+  function beep(level) {
+    if (!audio || audio.state !== 'running') return;
+    const pattern = level === 'red' || level === 'yellow' ? [880, 880, 880] : level === 'clear' ? [520] : [740, 740];
+    const volume = level === 'clear' ? 0.08 : 0.2;
+    pattern.forEach((freq, i) => {
+      const start = audio.currentTime + i * 0.28;
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(volume, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(start);
+      osc.stop(start + 0.22);
+    });
   }
 
   // Android Chrome shows notifications only through a service worker, and
@@ -386,7 +492,7 @@
 
   async function showBrowserNotification(event) {
     if (browserAvailable() || Notification.permission !== 'granted') return;
-    const options = { body: event.body || '', tag: event.tag, renotify: true, icon: 'icon-192.png', badge: 'icon-192.png' };
+    const options = { body: event.body || '', tag: event.tag, renotify: true, silent: Boolean(event.quiet), icon: 'icon-192.png', badge: 'icon-192.png' };
     const registration = await ensureServiceWorker();
     if (registration) registration.showNotification(event.title, options).catch(() => {});
     else {
@@ -416,6 +522,7 @@
     }
     if (!prefs[kindPref[event.kind]]) return;
     if (prefs.toasts) showToast(event);
+    if (prefs.sound && !event.ongoing && !event.quiet) beep(event.level);
     if (prefs.browser && !event.ongoing) showBrowserNotification(event);
   }
 
@@ -494,7 +601,7 @@
   $('notify-btn').title = s.notifyTitle;
   $('notify-heading').textContent = s.notifyHeading;
   $('kinds-heading').textContent = s.kindsHeading;
-  for (const key of ['toasts', 'browser', 'drone', 'target', 'alert']) $(`lbl-${key}`).textContent = s.notifyLabels[key];
+  for (const key of ['toasts', 'browser', 'sound', 'drone', 'target', 'alert']) $(`lbl-${key}`).textContent = s.notifyLabels[key];
   $('notify-test').textContent = s.notifyTest;
   $('notify-close').textContent = s.notifyClose;
 

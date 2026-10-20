@@ -64,6 +64,7 @@ function setupSettings(overlay, locations, alerts) {
   ipcMain.on('ui:location-remove', (_event, id) => locations.remove(id));
   ipcMain.on('ui:location-rename', (_event, { id, name }) => locations.rename(id, name));
   ipcMain.on('ui:location-primary', (_event, id) => locations.setPrimary(id));
+  ipcMain.on('ui:location-radius', (_event, { id, km }) => locations.setRadius(id, km));
   ipcMain.on('ui:location-show', (_event, id) => locations.show(id));
   ipcMain.handle('ui:alerts-test', () => alerts.test());
 

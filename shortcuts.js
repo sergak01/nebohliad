@@ -7,6 +7,7 @@
 // not trigger it.
 
 const { globalShortcut } = require('electron');
+const log = require('./logger');
 
 // In the order of the settings table.
 const SHORTCUTS = [
@@ -65,7 +66,7 @@ function setupShortcuts(settings, handlers, onChange) {
         failed.add(id);
       }
     }
-    if (failed.size) console.warn('Shortcuts taken by other programs:', [...failed].join(', '));
+    if (failed.size) log.warn('shortcuts', 'taken by other programs', [...failed].join(', '));
   }
 
   function changed() {

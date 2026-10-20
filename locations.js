@@ -6,6 +6,7 @@
 
 const crypto = require('crypto');
 const geocoder = require('./geocoder');
+const log = require('./logger');
 
 // Home view when the region lookup fails: a square this far around the point.
 const FALLBACK_HALF_SIZE_KM = 120;
@@ -25,6 +26,8 @@ function setupLocations(overlay) {
   const list = () => settings.locations;
   const find = (id) => settings.locations.find((loc) => loc.id === id) || null;
   const primary = () => find(settings.primaryLocationId);
+  // A location's own alert radius, else the common one.
+  const radiusOf = (loc) => (loc?.radiusKm >= 1 ? loc.radiusKm : settings.alerts.radiusKm);
 
   function changed() {
     overlay.settingsChanged();
@@ -35,7 +38,12 @@ function setupLocations(overlay) {
   // drawn twice on top of each other.
   function redraw() {
     const data = {
-      locations: list().map((loc) => ({ name: loc.name, center: loc.center, primary: loc.id === settings.primaryLocationId })),
+      locations: list().map((loc) => ({
+        name: loc.name,
+        center: loc.center,
+        primary: loc.id === settings.primaryLocationId,
+        radiusKm: settings.alerts.enabled ? radiusOf(loc) : null,
+      })),
       radiusKm: settings.alerts.enabled ? settings.alerts.radiusKm : null,
     };
     overlay.basePage.send('map-locations', data);
@@ -51,7 +59,7 @@ function setupLocations(overlay) {
       region = await geocoder.regionOf(place.center);
       if (!name) name = await geocoder.placeName(place.center, settings.lang);
     } catch (error) {
-      console.warn('Location lookup failed:', error.message);
+      log.warn('locations', 'lookup failed', error.message);
     }
     const location = {
       id: crypto.randomUUID(),
@@ -79,6 +87,17 @@ function setupLocations(overlay) {
     changed();
   }
 
+  // km: 1..500, or null for the common radius.
+  function setRadius(id, km) {
+    const location = find(id);
+    if (!location) return;
+    const value = Math.round(Number(km));
+    if (km === null || km === '' || !value) delete location.radiusKm;
+    else if (value >= 1 && value <= 500) location.radiusKm = value;
+    else return;
+    changed();
+  }
+
   function setPrimary(id) {
     if (!find(id)) return;
     settings.primaryLocationId = id;
@@ -92,7 +111,7 @@ function setupLocations(overlay) {
     return Boolean(location);
   }
 
-  return { list, find, primary, add, remove, rename, setPrimary, show, redraw };
+  return { list, find, primary, radiusOf, add, remove, rename, setPrimary, setRadius, show, redraw };
 }
 
 module.exports = { setupLocations };

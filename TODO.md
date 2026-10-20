@@ -58,3 +58,19 @@ targets, official air alerts) (see README). Still open:
   1 fps, so the gain is small).
 - High quality is capture-bound (~3 fps at 1760 px): capture once per frame
   at the target size instead of full size, or use the GPU for blending.
+
+## Later (agreed 2026-10-20)
+
+- **Start with Windows:** a login item that starts minimized to the tray (the
+  PC is the hub for the phone).
+- **Diagnostics page:** uptime, memory per process, stream resets, last frame
+  time, recent log lines (Settings → System).
+- **"Update from GitHub" button:** when the version check says "behind",
+  `git pull` + `npm run dist:local` for this personal setup.
+- **Stream capture memory:** watching costs ~500 MB of GPU memory for the
+  page captures (any quality); try `beginFrameSubscription` or capturing only
+  the streamed area.
+- **macOS:** deferred (no Mac to build and test on).
+- **Android without the PC:** a standalone tracking app (hidden WebViews in a
+  foreground service); risky (Turnstile in WebView, battery, background
+  limits). A small APK wrapper around the stream viewer is the cheap option.

@@ -27,6 +27,9 @@ const SITE_RULES = {
     // The sheet a click on a target opens (its details, close button), on
     // the base map and on the top layer alike.
     modals: ['dialog[open]', '#wm-details:not([hidden])'],
+    // Cloudflare Turnstile's overlay: watched (never touched) to tell the user
+    // when a check needs them.
+    challenge: '.ts-overlay',
     overlayModals: ['#wm-details:not([hidden])'],
     // Style layers that draw targets: icons, trails, track points, routes.
     targetLayers: '^wm-(trail|route|arrows|icons|selected)',
@@ -153,6 +156,30 @@ function watchSiteNotice(selector) {
 }
 
 if (rules?.notice) watchSiteNotice(rules.notice);
+
+// A Cloudflare Turnstile check on screen (war-monitor). Only read, never
+// touched. After a passed check the overlay element stays in the page with
+// aria-hidden="true", so an active check is a rendered overlay without it.
+function watchChallenge(selector) {
+  let last = false;
+  const check = () => {
+    const el = document.querySelector(selector);
+    const on = Boolean(
+      el && el.getAttribute('aria-hidden') !== 'true' && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().height > 0,
+    );
+    if (on === last) return;
+    last = on;
+    ipcRenderer.send('site-challenge', on);
+  };
+  const start = () => {
+    check();
+    setInterval(check, SITE_NOTICE_MS);
+  };
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+}
+
+if (rules?.challenge) watchChallenge(rules.challenge);
 
 // --- Map view sync -------------------------------------------------------
 
@@ -292,13 +319,17 @@ function installMapSync(sendView, sendReady) {
   function runCommand(command) {
     const map = mainMap();
     if (!map) return;
-    // Following a target (follow.js): centered on it, zoomed from "the whole
-    // circle in view" (closeness 0) to as close as this map goes (1).
+    // Following a target (follow.js): centered on the location, zoomed from
+    // "the whole circle in view" (closeness 0) to as close as this map goes
+    // (1), but never so close that `keep` (the target) leaves the view.
     if (command.follow) {
-      const { center, bbox, closeness } = command.follow;
+      const { center, bbox, keep, closeness } = command.follow;
       const maxZoom = map.getMaxZoom();
-      const fitZoom = Math.min(maxZoom, map.cameraForBounds(bbox, { padding: 60 })?.zoom ?? map.getZoom());
-      map.flyTo({ center, zoom: fitZoom + (maxZoom - fitZoom) * Math.min(1, Math.max(0, closeness || 0)), duration: 800 });
+      const zoomFor = (box) => Math.min(maxZoom, map.cameraForBounds(box, { padding: 60 })?.zoom ?? map.getZoom());
+      const fitZoom = zoomFor(bbox);
+      let zoom = fitZoom + (maxZoom - fitZoom) * Math.min(1, Math.max(0, closeness || 0));
+      if (keep) zoom = Math.min(zoom, zoomFor(keep));
+      map.flyTo({ center, zoom, duration: 800 });
       return;
     }
     if (command.bbox) map.fitBounds(command.bbox, { padding: 60, maxZoom: 12, duration: 800 });
@@ -407,7 +438,7 @@ function installMapSync(sendView, sendReady) {
       const ring = document.createElement('div');
       ring.style.cssText = [
         'position:absolute', 'border-radius:50%', 'border:2px dashed rgba(245,179,1,.9)',
-        'background:rgba(245,179,1,.06)', `display:${locationsData.radiusKm ? 'block' : 'none'}`,
+        'background:rgba(245,179,1,.06)', `display:${loc.radiusKm ? 'block' : 'none'}`,
       ].join(';');
       const dot = document.createElement('div');
       dot.style.cssText = [
@@ -435,9 +466,9 @@ function installMapSync(sendView, sendReady) {
       const loc = locationsData.locations[i];
       const p = map.project(loc.center);
       item.style.transform = `translate(${p.x}px, ${p.y}px)`;
-      if (locationsData.radiusKm) {
+      if (loc.radiusKm) {
         // Radius in pixels: project a point radiusKm to the north.
-        const north = map.project([loc.center[0], loc.center[1] + locationsData.radiusKm / 111.32]);
+        const north = map.project([loc.center[0], loc.center[1] + loc.radiusKm / 111.32]);
         const r = Math.abs(p.y - north.y);
         Object.assign(item.firstChild.style, { width: `${2 * r}px`, height: `${2 * r}px`, left: `${-r}px`, top: `${-r}px` });
       }

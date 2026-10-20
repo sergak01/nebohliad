@@ -26,6 +26,7 @@
       #locations input[type=text]:hover { border-color: var(--line); }
       #locations input[type=text]:focus { border-color: var(--accent); background: var(--bg); }
       #locations .region { color: var(--muted); font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #locations input.radius { width: 58px; text-align: right; }
       button.star { color: var(--muted); }
       button.star.active { color: var(--accent); }
       #results li { padding: 7px 10px; cursor: pointer; border-radius: 6px; }
@@ -130,6 +131,13 @@
             <span data-i18n="menu.km"></span>
           </div>
           <div class="row">
+            <div class="text"><span data-i18n="settings.quiet"></span><span class="desc" data-i18n="settings.quiet.desc"></span></div>
+            <input id="quiet-from" type="time" />
+            <span>–</span>
+            <input id="quiet-to" type="time" />
+            <button class="switch" id="quiet-enabled" role="switch"></button>
+          </div>
+          <div class="row">
             <div class="text"><span data-i18n="settings.follow"></span><span class="desc" data-i18n="settings.follow.desc"></span></div>
             <div class="seg" id="follow">
               <button data-value="off" data-i18n="settings.follow.off"></button>
@@ -151,6 +159,9 @@
           <div class="row">
             <div class="text"><span data-i18n="settings.stream.enabled"></span><span class="desc" id="stream-status"></span></div>
             <button class="switch" id="stream-enabled" role="switch"></button>
+          </div>
+          <div class="row compact" id="stream-health-row" hidden>
+            <div class="text"><span data-i18n="stream.health"></span><span class="desc" id="stream-health"></span></div>
           </div>
           <div id="stream-links" hidden>
             <div class="stream-links">
@@ -269,6 +280,10 @@
               <button data-fps="30">30</button>
               <button data-fps="60">∞</button>
             </div>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="settings.logs"></span><span class="desc" data-i18n="settings.logs.desc"></span></div>
+            <button class="bordered" id="open-logs" data-i18n="settings.logs.open"></button>
           </div>
         </div>
       </section>

@@ -25,12 +25,21 @@ function render() {
   $('interact').disabled = !state.topShown;
   $('map-only').classList.toggle('active', state.hudHidden);
   $('home').disabled = !state.hasPrimary;
-  // The sites' own notices (their target data paused and the like).
+  // The sites' own notices (their target data paused and the like) and ours
+  // (data stopped, a Cloudflare check waits).
   const notices = state.siteNotices || [];
   $('site-notice').hidden = notices.length === 0;
   if (notices.length) {
-    $('site-notice-text').textContent = notices.map((n) => `${t(`site.${n.site}`)}: ${n.text}`).join(' · ');
-    $('site-notice').title = `${t('toolbar.siteNotice.title')}\n\n${notices.map((n) => `${t(`site.${n.site}`)}: ${n.text}`).join('\n')}`;
+    const label = (n) => {
+      const text = n.kind === 'site' ? n.text : t(`notice.${n.kind}`).replace('{m}', n.minutes ?? '');
+      return `${t(`site.${n.site}`)}: ${text}`;
+    };
+    const hint = [];
+    if (notices.some((n) => n.kind === 'challenge')) hint.push(t('notice.challenge.click'));
+    if (notices.some((n) => n.kind === 'stale')) hint.push(t('notice.stale.click'));
+    $('site-notice-text').textContent = notices.map(label).join(' · ');
+    $('site-notice').title = [t('toolbar.siteNotice.title'), '', ...notices.map(label), ...(hint.length ? ['', ...hint] : [])].join('\n');
+    $('site-notice').classList.toggle('actionable', hint.length > 0);
   }
   const updateReady =['behind', 'diverged'].includes(state.update?.status);
   $('menu').classList.toggle('has-update', updateReady);
@@ -57,6 +66,7 @@ $('home').addEventListener('click', () => action('home'));
 $('nearby').addEventListener('click', () => action('show-location', state.nearby[0]?.locationId));
 $('search').addEventListener('click', () => action('search'));
 $('pip').addEventListener('click', () => action('pip'));
+$('site-notice').addEventListener('click', () => action('site-notice'));
 $('menu').addEventListener('click', () => {
   const { x, y, width, height } = $('menu').getBoundingClientRect();
   action('menu', { x, y, width, height });

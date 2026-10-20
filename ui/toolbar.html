@@ -22,6 +22,8 @@
       #site-notice { height: 28px; gap: 6px; max-width: 46vw; border: 1px solid var(--accent); background: var(--toggle-on); color: var(--fg); cursor: default; }
       #site-notice span { overflow: hidden; text-overflow: ellipsis; }
       #site-notice svg.i { color: var(--accent); }
+      #site-notice.actionable { cursor: pointer; }
+      #site-notice.actionable:hover { background: var(--hover); }
       /* A newer version on GitHub: a dot on the menu button. */
       #menu { position: relative; }
       #menu.has-update::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }

@@ -83,14 +83,14 @@ function setupAlerts(overlay, locations) {
 
   function evaluate() {
     const now = Date.now();
-    const radius = settings.alerts.radiusKm;
     const hits = [];
     for (const [site, report] of Object.entries(reports)) {
       if (now - report.at > STALE_REPORT_MS) continue;
       for (const target of report.targets) {
         for (const location of locations.list()) {
           const km = distanceKm(location.center, target.center);
-          if (km <= radius) hits.push({ site, target, location, km, key: `${site}:${target.id}` });
+          const radius = locations.radiusOf(location);
+          if (km <= radius) hits.push({ site, target, location, km, radius, key: `${site}:${target.id}` });
         }
       }
     }
@@ -135,6 +135,24 @@ function setupAlerts(overlay, locations) {
     return lines;
   }
 
+  // Quiet hours (settings.quiet { enabled, from, to } as "HH:MM"): Windows
+  // notifications come without sound and stream viewers do not vibrate or
+  // beep, except for an air alert starting or changing at the primary
+  // location. Nothing is dropped, it is only quiet.
+  function quietNow(date = new Date()) {
+    const q = settings.quiet;
+    if (!q?.enabled) return false;
+    const minutes = (hhmm) => {
+      const [h, m] = String(hhmm).split(':').map(Number);
+      return h * 60 + m;
+    };
+    const now = date.getHours() * 60 + date.getMinutes();
+    const from = minutes(q.from);
+    const to = minutes(q.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return false;
+    return from < to ? now >= from && now < to : now >= from || now < to;
+  }
+
   function streamTargets(kind, location, group) {
     const s = strings();
     overlay.streamEvent({
@@ -143,6 +161,7 @@ function setupAlerts(overlay, locations) {
       body: targetLines(group, s).join('\n'),
       level: 'warning',
       tag: `${kind}:${location.id}`,
+      quiet: quietNow(),
     });
   }
 
@@ -168,6 +187,8 @@ function setupAlerts(overlay, locations) {
       body: s.alertBody(info.region, kind === 'alert-end' ? null : info.reason),
       level: kind === 'alert-end' ? 'clear' : info.level === 'Red' ? 'red' : 'yellow',
       tag: `alert:${location.id}`,
+      // An alert starting or changing at home is never quiet.
+      quiet: quietNow() && !(kind !== 'alert-end' && location.id === settings.primaryLocationId),
     };
   }
 
@@ -212,7 +233,7 @@ function setupAlerts(overlay, locations) {
 
   function show(title, body, onClick) {
     if (!Notification.isSupported()) return false;
-    const notification = new Notification({ title, body });
+    const notification = new Notification({ title, body, silent: quietNow() });
     if (onClick) notification.on('click', onClick);
     notification.show();
     return true;
@@ -238,7 +259,7 @@ function setupAlerts(overlay, locations) {
     return s.banner(nearby.length, s.kinds[nearest.target.kind] || s.kinds.unknown, Math.round(nearest.km), nearest.location.name);
   }
 
-  return { test, banner, snapshot, nearby: () => nearby, supported: () => Notification.isSupported() };
+  return { test, banner, snapshot, quietNow, nearby: () => nearby, supported: () => Notification.isSupported() };
 }
 
 module.exports = { setupAlerts, distanceKm };

@@ -65,7 +65,41 @@ function drawNotice(text, scale, y) {
   ctx.fillText(`⏸ ${text}`, Math.round(10 * scale), y + height / 2, canvas.width - Math.round(20 * scale));
 }
 
-overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, attribution, banner, notice, needJpeg }) => {
+// Frame marker: a strip of square cells at the bottom-left edge that encodes
+// the frame number (seq, 0..255): white, black (to find and check it), then
+// 8 bits, highest first. Cell size is width / 160, so the viewer can find it
+// at any quality. The viewer reads it back from the video to tell a frozen
+// picture from a map that simply does not change (viewer.js).
+const MARKER_CELLS_PER_WIDTH = 160;
+
+function drawMarker(seq) {
+  const cell = Math.max(4, Math.round(canvas.width / MARKER_CELLS_PER_WIDTH));
+  const y = canvas.height - cell;
+  const bits = [1, 0, ...Array.from({ length: 8 }, (_, i) => (seq >> (7 - i)) & 1)];
+  ctx.globalAlpha = 1;
+  bits.forEach((bit, i) => {
+    ctx.fillStyle = bit ? '#ffffff' : '#000000';
+    ctx.fillRect(i * cell, y, cell, cell);
+  });
+  return cell;
+}
+
+// The PC's time, just above the marker.
+function drawClock(scale, bottom) {
+  const text = new Date().toLocaleTimeString('uk-UA', { hour12: false });
+  ctx.globalAlpha = 1;
+  ctx.font = `600 ${Math.max(11, Math.round(13 * scale))}px "Segoe UI", system-ui, sans-serif`;
+  const pad = Math.round(5 * scale);
+  const width = ctx.measureText(text).width + 2 * pad;
+  const height = Math.max(16, Math.round(20 * scale));
+  ctx.fillStyle = 'rgba(17, 19, 24, 0.78)';
+  ctx.fillRect(0, bottom - height, width, height);
+  ctx.fillStyle = '#e8e9ec';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, pad, bottom - height / 2);
+}
+
+overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, attribution, banner, notice, seq, needJpeg }) => {
   try {
     const [base, layer] = await Promise.all([decode(bottom), decode(top)]);
     const source = base || layer;
@@ -90,9 +124,14 @@ overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, a
     if (attribution) drawAttribution(uiScale);
     if (banner) drawBanner(banner, uiScale);
     if (notice) drawNotice(notice, uiScale, banner ? Math.round(30 * uiScale) : 0);
+    const cell = drawMarker(seq || 0);
+    drawClock(uiScale, height - cell);
     base?.close();
     layer?.close();
-    if (peers.size) track.requestFrame();
+    if (peers.size) {
+      track.requestFrame();
+      framesRequested++;
+    }
     let jpeg = null;
     if (needJpeg) {
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
@@ -158,6 +197,38 @@ overlay.on('ui:webrtc-offer', async ({ id, sdp, maxPeers }) => {
     overlay.send('ui:webrtc-answer', { id, error: error.message });
   }
 });
+
+// Encoder check: frames are asked for, but are they encoded? If a connected
+// peer's framesEncoded has not grown over a check while frames were
+// requested, the video path is stuck; main then replaces this window.
+const ENCODER_CHECK_MS = 15_000;
+let framesRequested = 0;
+const lastEncoded = new WeakMap(); // peer -> framesEncoded at the last check
+
+setInterval(async () => {
+  const requested = framesRequested;
+  framesRequested = 0;
+  if (requested < 3) return; // Too few frames asked for to judge.
+  for (const peer of peers) {
+    if (peer.connectionState !== 'connected') continue;
+    let encoded = null;
+    try {
+      const stats = await peer.getStats();
+      stats.forEach((s) => {
+        if (s.type === 'outbound-rtp' && s.kind === 'video') encoded = s.framesEncoded;
+      });
+    } catch {
+      continue;
+    }
+    if (encoded === null) continue;
+    const before = lastEncoded.get(peer);
+    lastEncoded.set(peer, encoded);
+    if (before !== undefined && encoded === before) {
+      overlay.send('ui:compositor-health', { stalled: true, requested });
+      return;
+    }
+  }
+}, ENCODER_CHECK_MS);
 
 // Main asks to drop everyone (new link, stream off).
 overlay.on('ui:webrtc-close-all', () => {

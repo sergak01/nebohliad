@@ -24,6 +24,7 @@ const os = require('os');
 const path = require('path');
 const { BrowserWindow, ipcMain } = require('electron');
 const QRCode = require('qrcode');
+const log = require('./logger');
 
 const BOUNDARY = 'nebohliadframe';
 const MAX_VIEWERS = 8;
@@ -130,6 +131,7 @@ const VIEWER_STRINGS = {
     notifyLabels: {
       toasts: 'Спливаючі повідомлення на сторінці',
       browser: 'Сповіщення браузера',
+      sound: 'Звук (після першого дотику до сторінки)',
       drone: 'Дрони поблизу локацій',
       target: 'Ракети й інші цілі поблизу',
       alert: 'Повітряна тривога в районі локацій',
@@ -186,6 +188,7 @@ const VIEWER_STRINGS = {
     notifyLabels: {
       toasts: 'Pop-up messages on the page',
       browser: 'Browser notifications',
+      sound: 'Sound (after the first tap on the page)',
       drone: 'Drones near locations',
       target: 'Missiles and other targets near',
       alert: 'Air alert in a location’s area',
@@ -332,6 +335,7 @@ function setupStream(overlay, getPipArea) {
   ipcMain.on('ui:composed', (_event, { id, jpeg, error: e }) => settle(id, jpeg ? Buffer.from(jpeg) : null, e));
   ipcMain.on('ui:webrtc-answer', (_event, { id, sdp, error: e }) => settle(id, sdp, e));
   ipcMain.on('ui:webrtc-peers', (_event, count) => {
+    if (count !== webrtcPeers) log.info('stream', 'WebRTC viewers', { count });
     webrtcPeers = count;
     overlay.streamChanged();
     if (count > 0) loop();
@@ -360,7 +364,7 @@ function setupStream(overlay, getPipArea) {
     if (!compositor || compositor.isDestroyed()) return false;
     if (Date.now() - lastVideoReset < VIDEO_RESET_MIN_MS) return false;
     lastVideoReset = Date.now();
-    console.warn(`Stream video reset (${reason})`);
+    log.warn('stream', 'video reset', { reason });
     // Close the peers properly first, so viewers see it at once instead of
     // after an ICE timeout, then drop the window ('closed' rejects pending
     // frames and clears the peer count).
@@ -385,6 +389,115 @@ function setupStream(overlay, getPipArea) {
     }
   }, 15_000).unref?.();
 
+  // --- Health ------------------------------------------------------------
+  // Each frame carries its number (seq) in a marker the viewer reads back
+  // (compositor.js / viewer.js). Problems are found by:
+  // - this side: a page capture that hangs (> CAPTURE_TIMEOUT_MS);
+  // - the compositor: frames requested but not encoded ('ui:compositor-health');
+  // - viewers: POST /health every 30 s with how long their marker has not
+  //   changed (frozen) or whether the picture is black;
+  // - silence: WebRTC viewers but no report for REPORT_SILENCE_MS.
+  // Fixes go up a ladder, each step rate-limited: viewer reconnect (viewer's
+  // own), new compositor (resetVideo), reload the map pages.
+  const CAPTURE_TIMEOUT_MS = 10_000;
+  const FROZEN_MS = 15_000;
+  const REPORT_SILENCE_MS = 3 * 60_000;
+  const SILENCE_FIX_EVERY_MS = 15 * 60_000;
+  const RELOAD_EVERY_MS = 10 * 60_000;
+  let frameSeq = 0;
+  let lastComposedAt = 0;
+  let captureTimeouts = 0;
+  let lastReload = 0;
+  let lastReportAt = 0;
+  let lastSilenceFix = 0;
+  let lastHealthPush = 0;
+  // problem: { at, what, fix } as codes (encoder-stalled, no-reports,
+  // viewer-black, viewer-frozen, capture-stalled / video-restarted,
+  // pages-reloaded); the settings window words them.
+  const health = { okAt: null, problem: null };
+
+  function noteProblem(what, fix) {
+    health.problem = { at: Date.now(), what, fix };
+    log.warn('stream', `health: ${what}`, { fix });
+    overlay.streamChanged();
+  }
+
+  function withTimeout(promise, ms, what) {
+    let timer;
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} timeout`)), ms);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  }
+
+  ipcMain.on('ui:compositor-health', (event, report) => {
+    if (!compositor || compositor.isDestroyed() || event.sender !== compositor.webContents) return;
+    if (report?.stalled && resetVideo('encoder stalled')) noteProblem('encoder-stalled', 'video-restarted');
+  });
+
+  // WebRTC viewers that reported before have gone quiet while frames are
+  // being made: their page may be stuck. Only for viewers that report at all
+  // (lastReportAt set), so an old page without reports never triggers it.
+  setInterval(() => {
+    if (!server || webrtcPeers === 0 || !lastReportAt) return;
+    const now = Date.now();
+    const composing = now - lastComposedAt < 10_000;
+    if (composing && now - lastReportAt > REPORT_SILENCE_MS && now - lastSilenceFix > SILENCE_FIX_EVERY_MS) {
+      lastSilenceFix = now;
+      if (resetVideo('no health report')) noteProblem('no-reports', 'video-restarted');
+    }
+  }, 30_000).unref?.();
+
+  // A viewer's report: { seq, frozenMs, black, mode }.
+  function healthReport(report) {
+    lastReportAt = Date.now();
+    const frozen = Number(report?.frozenMs) >= FROZEN_MS;
+    const composing = Date.now() - lastComposedAt < 10_000;
+    if ((frozen || report?.black) && composing) {
+      // Frames are made here, but the viewer's picture stands still or is
+      // black: the video path is stuck.
+      const what = report?.black ? 'viewer-black' : 'viewer-frozen';
+      if (resetVideo(what)) {
+        noteProblem(what, 'video-restarted');
+        return { reset: true };
+      }
+      return { reset: false };
+    }
+    if (!frozen && !report?.black) {
+      health.okAt = Date.now();
+      // The settings window shows when the last good report came; once a minute is enough.
+      if (health.okAt - lastHealthPush > 60_000) {
+        lastHealthPush = health.okAt;
+        overlay.streamChanged();
+      }
+    }
+    return { reset: false };
+  }
+
+  async function capturePages(area, wantBase, wantTop) {
+    try {
+      const pages = await Promise.all([
+        wantBase ? withTimeout(overlay.basePage.capturePage(area), CAPTURE_TIMEOUT_MS, 'base page capture') : null,
+        wantTop ? withTimeout(overlay.overlayPage.capturePage(area), CAPTURE_TIMEOUT_MS, 'top page capture') : null,
+      ]);
+      captureTimeouts = 0;
+      return pages;
+    } catch (captureError) {
+      if (/timeout/.test(captureError.message)) {
+        captureTimeouts++;
+        if (captureTimeouts >= 2 && Date.now() - lastReload > RELOAD_EVERY_MS) {
+          lastReload = Date.now();
+          captureTimeouts = 0;
+          noteProblem('capture-stalled', 'pages-reloaded');
+          overlay.reloadMaps();
+        }
+      }
+      throw captureError;
+    }
+  }
+
   async function captureFrame(needJpeg) {
     lastFrameAt = Date.now();
     await ensureCompositor();
@@ -394,11 +507,9 @@ function setupStream(overlay, getPipArea) {
     // The top layer as the user sees it: only if it is shown, unless the
     // stream asks for the top layer alone.
     const wantTop = layers === 'top' || (layers === 'both' && overlay.topShown);
-    const [bottom, top] = await Promise.all([
-      wantBase ? overlay.basePage.capturePage(area) : null,
-      wantTop ? overlay.overlayPage.capturePage(area) : null,
-    ]);
+    const [bottom, top] = await capturePages(area, wantBase, wantTop);
     const q = quality();
+    frameSeq = (frameSeq + 1) & 255;
     return request(
       'ui:compose',
       {
@@ -414,10 +525,14 @@ function setupStream(overlay, getPipArea) {
         opacity: layers === 'top' ? 1 : overlay.topOpacity,
         maxWidth: q.maxWidth,
         quality: q.jpeg,
+        seq: frameSeq,
         needJpeg,
       },
       5000,
-    );
+    ).then((jpeg) => {
+      lastComposedAt = Date.now();
+      return jpeg;
+    });
   }
 
   function frameIntervalMs() {
@@ -465,7 +580,7 @@ function setupStream(overlay, getPipArea) {
             for (const client of clients) writeFrame(client, jpeg);
           }
         } catch (frameError) {
-          console.warn('Stream frame failed:', frameError.message);
+          log.warn('stream', 'frame failed', frameError.message);
         }
         await pause(Math.max(10, frameIntervalMs() - (Date.now() - started)));
       }
@@ -727,10 +842,27 @@ function setupStream(overlay, getPipArea) {
       return res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Forbidden');
     }
 
-    if (url.pathname === '/webrtc-reset') {
-      // A viewer saw only black video for a while.
+    if (url.pathname === '/health') {
+      // A viewer's periodic report (viewer.js watchdog).
       if (req.method !== 'POST') return res.writeHead(405).end();
-      res.writeHead(resetVideo('viewer saw black video') ? 204 : 429, noStore).end();
+      readBody(req, MAX_LOGIN_BYTES).then(
+        (text) => {
+          let report = {};
+          try {
+            report = JSON.parse(text);
+          } catch {
+            // Empty or broken report: counts as a sign of life only.
+          }
+          sendJson(res, 200, healthReport(report));
+        },
+        () => res.writeHead(400).end(),
+      );
+    } else if (url.pathname === '/webrtc-reset') {
+      // A viewer saw only black video for a while (pages from before /health).
+      if (req.method !== 'POST') return res.writeHead(405).end();
+      const reset = resetVideo('viewer saw black video');
+      if (reset) noteProblem('viewer-black', 'video-restarted');
+      res.writeHead(reset ? 204 : 429, noStore).end();
     } else if (url.pathname === '/auth') {
       // For a page to check a stored or current token.
       res.writeHead(204, noStore).end();
@@ -859,7 +991,7 @@ function setupStream(overlay, getPipArea) {
     serverPort = settings.stream.port;
     server.on('error', (serverError) => {
       error = serverError.code || serverError.message;
-      console.warn('Stream server error:', serverError.message);
+      log.error('stream', 'server error', serverError.message);
       stop({ keepError: true });
       overlay.streamChanged();
     });
@@ -916,7 +1048,9 @@ function setupStream(overlay, getPipArea) {
     const devices = running
       ? [...waiting.values()].map(({ id, address, device, invite: inv }) => ({ id, address, device, invite: inv && { number: inv.number, expiresAt: inv.expiresAt } }))
       : [];
-    return { running, error, viewers: viewers(), urls, qr, code: signInCode, devices };
+    // The video watchdog's last word, for Settings → Stream.
+    const videoHealth = running ? { okAt: health.okAt, problem: health.problem, reportAt: lastReportAt || null } : null;
+    return { running, error, viewers: viewers(), urls, qr, code: signInCode, devices, health: videoHealth };
   }
 
   return { apply, stop, newLink, state, broadcast, resetVideo, invite, cancelInvite };

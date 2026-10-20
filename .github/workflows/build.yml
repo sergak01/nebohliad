@@ -1,0 +1,192 @@
+# Builds the Windows app on every push and pull request; signs it through
+# SignPath (free for open source, certificate by SignPath Foundation) only
+# for version tags (v*) and manual runs that ask for it, and only once the
+# SignPath project is set up (see CODE_SIGNING.md):
+#   repository secret   SIGNPATH_API_TOKEN
+#   repository variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG,
+#                        SIGNPATH_SIGNING_POLICY_SLUG (e.g. release-signing)
+# Without them the same steps produce unsigned builds.
+#
+# Signing order: the app's own Nebohliad.exe first (artifact configuration
+# "app"), then electron-builder packs the installer and the portable build
+# from that signed app (--prepackaged), then both of those are signed
+# (configuration "installers"). Each request waits for manual approval in
+# SignPath.
+#
+# A v* tag also creates a draft GitHub release with both files; publishing it
+# stays a manual step.
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: Sign through SignPath (needs approval there)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      # No local certificate on the runner: electron-builder must not look for one.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      SIGN: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v') || inputs.sign == true) }}
+    outputs:
+      signed: ${{ env.SIGN }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "version=$version" >> $env:GITHUB_OUTPUT
+          if ($env:GITHUB_REF -like 'refs/tags/v*' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match package.json version $version"
+          }
+
+      - name: Package the app (dist/win-unpacked)
+        run: |
+          node scripts/build-info.js
+          npx electron-builder --win --dir --publish never
+
+      # --- Sign Nebohliad.exe -------------------------------------------------
+
+      - name: Upload the unsigned app for signing
+        id: upload-app
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-unsigned
+          path: dist/win-unpacked/
+          retention-days: 1
+
+      - name: Sign the app (SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.upload-app.outputs.artifact-id }}
+          wait-for-completion: true
+          # Manual approval: allow up to an hour.
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: dist/app-signed
+
+      - name: Use the signed app
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force dist/win-unpacked
+          Move-Item dist/app-signed dist/win-unpacked
+          $signature = Get-AuthenticodeSignature dist/win-unpacked/Nebohliad.exe
+          "Nebohliad.exe: $($signature.Status) $($signature.SignerCertificate.Subject)"
+          if ($signature.Status -ne 'Valid') { throw 'Nebohliad.exe is not validly signed' }
+
+      # --- Installer and portable ---------------------------------------------
+
+      - name: Build the installer and the portable build
+        run: npx electron-builder --win --prepackaged dist/win-unpacked --publish never
+
+      - name: Collect the files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item "dist/Nebohliad-Setup-${{ steps.version.outputs.version }}.exe", "dist/Nebohliad-${{ steps.version.outputs.version }}-portable.exe" out/
+
+      - name: Upload the unsigned installers for signing
+        id: upload-installers
+        if: env.SIGN == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers-unsigned
+          path: out/
+          retention-days: 1
+
+      - name: Sign the installer and the portable build (SignPath)
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: installers
+          github-artifact-id: ${{ steps.upload-installers.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: out-signed
+
+      - name: Use the signed installers
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force out
+          Move-Item out-signed out
+          foreach ($file in Get-ChildItem out/*.exe) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            "$($file.Name): $($signature.Status) $($signature.SignerCertificate.Subject)"
+            if ($signature.Status -ne 'Valid') { throw "$($file.Name) is not validly signed" }
+          }
+
+      - name: Upload the build
+        uses: actions/upload-artifact@v7
+        with:
+          name: Nebohliad-${{ steps.version.outputs.version }}-${{ env.SIGN == 'true' && 'signed' || 'unsigned' }}-${{ github.sha }}
+          path: out/
+          retention-days: 30
+
+  release:
+    # A v* tag: a draft release with the build; publish it by hand.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: Nebohliad-*
+          merge-multiple: true
+          path: out
+
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED: ${{ needs.build.outputs.signed }}
+        run: |
+          note="Unsigned build."
+          if [ "$SIGNED" = "true" ]; then note="Signed through SignPath (certificate: SignPath Foundation). See CODE_SIGNING.md."; fi
+          gh release create "$GITHUB_REF_NAME" out/*.exe \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --title "Nebohliad $GITHUB_REF_NAME" \
+            --notes "$note" \
+            --generate-notes

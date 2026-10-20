@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "app": the unpacked app (dist/win-unpacked),
+  uploaded by .github/workflows/build.yml as a GitHub artifact (a ZIP whose
+  root is the folder's contents). Only our own executable is signed; the
+  Electron DLLs and elevate.exe are upstream files and stay as they are.
+  Paste this into the SignPath project (artifact configuration slug "app").
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="Nebohliad.exe">
+      <authenticode-sign/>
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

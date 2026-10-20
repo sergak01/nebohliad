@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration "installers": the NSIS installer and the
+  portable build, made by electron-builder from the already signed app and
+  uploaded by .github/workflows/build.yml as one GitHub artifact (a ZIP with
+  both files at its root). Paste this into the SignPath project (artifact
+  configuration slug "installers").
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="Nebohliad-Setup-*.exe">
+      <authenticode-sign/>
+    </pe-file>
+    <pe-file path="Nebohliad-*-portable.exe">
+      <authenticode-sign/>
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

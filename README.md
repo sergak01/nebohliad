@@ -11,8 +11,7 @@
 > як є. Його не узгоджено з розробниками map.ukrainealarm.com і
 > map.war-monitor.org, і він не є продуктом чи сервісом для інших. Код
 > відкритий під MIT (див. «Ліцензія»), але прохання користуватися ним так
-> само: особисто, на власний ризик і з повагою до умов обох сайтів. Без
-> автоматичних збірок і релізів.
+> само: особисто, на власний ризик і з повагою до умов обох сайтів.
 
 > **Небогляд не є системою оповіщення.** Він лише показує дві публічні мапи
 > в одному вікні.
@@ -100,7 +99,12 @@ npm run dist       # інсталятор і портативна версія �
 npm run dist:local # лише dist/win-unpacked для цього ПК (див. нижче)
 ```
 
-Готових збірок немає: зберіть самі. Збірка не підписана. Якщо в Windows 11
+GitHub Actions ([build.yml](.github/workflows/build.yml)) збирає застосунок
+на кожен коміт; файли — в артефактах запуску, а для тегу `v*` — у
+чернетці релізу. Підпис через SignPath Foundation налаштовується (див.
+[політику підпису коду](CODE_SIGNING.md)); доти збірки не підписані.
+
+Локальна збірка не підписана. Якщо в Windows 11
 увімкнено Smart App Control, він оцінює непідписаний файл за репутацією й
 зазвичай пропускає його, а файл із самопідписаним сертифікатом блокує без
 можливості запустити. Тому самопідписування (`npm run make-cert`, потім
@@ -144,7 +148,7 @@ of the other, with synchronized zoom and position.
 > map.ukrainealarm.com or map.war-monitor.org, and it is not a product or a
 > service for others. The code is open under MIT (see "License"), but please
 > use it the same way: personally, at your own risk, and respecting both
-> sites' terms. No automated builds or releases.
+> sites' terms.
 
 > **Nebohliad is not a warning system.** It only shows two public maps in one
 > window.
@@ -230,7 +234,12 @@ npm run dist       # installer and portable build in dist/
 npm run dist:local # only dist/win-unpacked, for this PC (see below)
 ```
 
-There are no prebuilt releases: build it yourself. The build is unsigned. If
+GitHub Actions ([build.yml](.github/workflows/build.yml)) builds the app on
+every commit; the files are in the run's artifacts and, for a `v*` tag, in a
+draft release. Signing through SignPath Foundation is being set up (see the
+[code signing policy](CODE_SIGNING.md)); until then builds are unsigned.
+
+A local build is unsigned. If
 Smart App Control is on in Windows 11, it judges an unsigned file by
 reputation and usually lets it run, but it blocks a file with a self-signed
 certificate with no way to run it. So self-signing (`npm run make-cert`, then

@@ -1,5 +1,38 @@
 # TODO
 
+## CI signing through SignPath Foundation (prepared 2026-10-20)
+
+`.github/workflows/build.yml` builds on every push / PR (unsigned artifacts)
+and signs v* tags and manual runs with "sign" once SignPath is set up. Manual
+steps, all the author's:
+
+1. Turn on MFA for GitHub (and later SignPath).
+2. Apply at https://signpath.org/apply (OSS project, MIT). Their conditions
+   that matter here: released and documented software (publish a first
+   release, even unsigned, before applying), a code signing policy linked
+   from the home page (CODE_SIGNING.md, linked from README), a privacy
+   statement (in CODE_SIGNING.md), and data sent to other systems can be
+   turned off (the update check can; site pages and Nominatim are what the
+   user asks for). The README's "for personal use" note may need softening
+   if they object.
+3. In SignPath: create the project (slug, e.g. `nebohliad`), add the
+   artifact configurations from `.signpath/artifact-configurations/` (slugs
+   `app` and `installers`), link the "GitHub.com" trusted build system,
+   signing policy `release-signing` (approver: the author). Optionally
+   install the SignPath GitHub App.
+4. GitHub repo settings: secret `SIGNPATH_API_TOKEN` (a CI user's API token
+   with submitter rights), variables `SIGNPATH_ORGANIZATION_ID`,
+   `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG`.
+5. Release: bump `version`, tag `vX.Y.Z` (must match), push the tag, approve
+   both signing requests in SignPath (the job waits up to an hour for each),
+   then publish the draft release.
+
+Notes: the signer shown by Windows will be "SignPath Foundation", not the
+author. The NSIS uninstaller inside the installer stays unsigned (it is
+generated inside the installer build; signing it would need SignPath during
+electron-builder's run). Whether Smart App Control accepts the signed build
+is to be seen.
+
 ## Update check and auto-update
 
 Tell the user when a new version exists and, ideally, install it in place.

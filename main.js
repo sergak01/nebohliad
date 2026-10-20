@@ -619,6 +619,8 @@ function keepViewAcrossReload() {
 }
 
 function restoreMain() {
+  // Shown only for a moment, transparent: hidden for the user.
+  endWake(true);
   if (!mainWindow.isVisible()) showMain();
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
@@ -626,7 +628,44 @@ function restoreMain() {
 
 // --- Tray --------------------------------------------------------------------
 
+// Pages in windows hidden in the tray can stop getting frames altogether
+// (seen 2026-10-20 after ~2 h: capturePage hung, requestAnimationFrame
+// ~1/s even in the compositor; reloading the pages or restarting the GPU
+// process did not help). Showing a window brings its frames back, and they
+// keep coming after it is hidden again. So the stream's watchdog shows the
+// hidden windows for a moment, fully transparent and without focus.
+const WAKE_MS = 1500;
+let wake = null; // { windows, timer }
+
+function wakeHiddenWindows() {
+  if (wake) return true;
+  const windows = [mainWindow, overlayWindow].filter((w) => !w.isVisible());
+  if (!windows.length) return false;
+  // Showing a window can make the map report a view: not the user's move.
+  follow?.expectMove();
+  for (const w of windows) {
+    w.setOpacity(0);
+    w.showInactive();
+  }
+  wake = { windows, timer: setTimeout(() => endWake(true), WAKE_MS) };
+  log.info('maps', 'woke the hidden windows');
+  return true;
+}
+
+// hideAgain false: the user is bringing the window back meanwhile.
+function endWake(hideAgain) {
+  if (!wake) return;
+  clearTimeout(wake.timer);
+  if (hideAgain) follow?.expectMove();
+  for (const w of wake.windows) {
+    if (hideAgain) w.hide();
+    w.setOpacity(w === overlayWindow ? currentOpacity() : 1);
+  }
+  wake = null;
+}
+
 function hideToTray() {
+  endWake(true);
   overlayWindow.hide();
   mainWindow.hide();
   if (!trayAnnounced) {
@@ -637,6 +676,7 @@ function hideToTray() {
 }
 
 function showMain() {
+  endWake(false);
   mainWindow.show();
   if (topShown) overlayWindow.showInactive();
   layout();
@@ -645,7 +685,7 @@ function showMain() {
 }
 
 function toggleMain() {
-  if (mainWindow.isVisible() && !mainWindow.isMinimized()) hideToTray();
+  if (!wake && mainWindow.isVisible() && !mainWindow.isMinimized()) hideToTray();
   else restoreMain();
 }
 
@@ -904,6 +944,7 @@ const overlay = {
   nearbyChanged,
   streamChanged: () => refreshStream(),
   // The stream's watchdog: a page capture keeps hanging.
+  wakeHiddenWindows,
   reloadMaps: () => reloadPages('stream capture stalled'),
   alertBanner: () => alerts?.banner() || null,
   // "ukrainealarm: <the site's notice>" lines for the stream's frames.

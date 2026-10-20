@@ -404,6 +404,8 @@ function setupStream(overlay, getPipArea) {
   const REPORT_SILENCE_MS = 3 * 60_000;
   const SILENCE_FIX_EVERY_MS = 15 * 60_000;
   const RELOAD_EVERY_MS = 10 * 60_000;
+  const WAKE_EVERY_MS = 60_000;
+  let lastWake = 0;
   let frameSeq = 0;
   let lastComposedAt = 0;
   let captureTimeouts = 0;
@@ -413,7 +415,7 @@ function setupStream(overlay, getPipArea) {
   let lastHealthPush = 0;
   // problem: { at, what, fix } as codes (encoder-stalled, no-reports,
   // viewer-black, viewer-frozen, capture-stalled / video-restarted,
-  // pages-reloaded); the settings window words them.
+  // windows-woken, pages-reloaded); the settings window words them.
   const health = { okAt: null, problem: null };
 
   function noteProblem(what, fix) {
@@ -487,7 +489,13 @@ function setupStream(overlay, getPipArea) {
     } catch (captureError) {
       if (/timeout/.test(captureError.message)) {
         captureTimeouts++;
-        if (captureTimeouts >= 2 && Date.now() - lastReload > RELOAD_EVERY_MS) {
+        // Hidden windows (tray) may get no frames at all: show them for a
+        // moment first; reload only if that did not help.
+        if (captureTimeouts >= 2 && Date.now() - lastWake > WAKE_EVERY_MS && overlay.wakeHiddenWindows()) {
+          lastWake = Date.now();
+          captureTimeouts = 0;
+          noteProblem('capture-stalled', 'windows-woken');
+        } else if (captureTimeouts >= 2 && Date.now() - lastReload > RELOAD_EVERY_MS) {
           lastReload = Date.now();
           captureTimeouts = 0;
           noteProblem('capture-stalled', 'pages-reloaded');

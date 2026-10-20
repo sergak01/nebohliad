@@ -3,8 +3,8 @@
 // Event log for the main process: userData/logs/nebohliad.log, rotated at
 // 1 MB (three older files kept). One line per event:
 //   2026-10-20T08:12:18.123Z WARN [stream] video reset {"reason":"resume"}
-// The same message from the same scope again within a minute is not written
-// again; the next different line notes how often it repeated. Never log
+// An identical line again within a minute is not written again; when it next
+// comes after that, a note says how often it came in between. Never log
 // target positions or location coordinates (README: no target history).
 
 const fs = require('fs');
@@ -60,17 +60,19 @@ function append(line) {
 }
 
 function write(level, scope, message, details) {
-  const key = `${scope} ${message}`;
+  const extra = details === undefined ? '' : ` ${typeof details === 'string' ? details : JSON.stringify(details)}`;
+  // Only identical lines are collapsed: the same message with other details
+  // (a viewer count, a reason) is news.
+  const key = `${level} ${scope} ${message}${extra}`;
   const now = Date.now();
   const seen = recent.get(key);
   if (seen && now - seen.at < REPEAT_WINDOW_MS) {
     seen.repeats++;
     return;
   }
-  if (seen?.repeats) append(`${new Date(now).toISOString()} ${level} [${scope}] (previous line repeated ${seen.repeats} more times)`);
+  if (seen?.repeats) append(`${new Date(now).toISOString()} ${level} [${scope}] ("${message}${extra}" also came ${seen.repeats} more times in the last minute)`);
   recent.set(key, { at: now, repeats: 0 });
   if (recent.size > 500) recent.clear();
-  const extra = details === undefined ? '' : ` ${typeof details === 'string' ? details : JSON.stringify(details)}`;
   const line = `${new Date(now).toISOString()} ${level} [${scope}] ${message}${extra}`;
   (level === 'ERROR' ? console.error : level === 'WARN' ? console.warn : console.log)(line);
   append(line);

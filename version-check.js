@@ -10,7 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { net } = require('electron');
+const { app, net } = require('electron');
 const pkg = require('./package.json');
 
 const REPO = (pkg.repository?.url || '').match(/github\.com\/([^/]+\/[^/.]+)/)?.[1] || null;
@@ -19,14 +19,23 @@ const FIRST_CHECK_MS = 20_000;
 const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 const TIMEOUT_MS = 15_000;
 
-// { commit, date, dirty, source } or null.
+// { commit, date, dirty, source } or null. A build reads build-info.json; in
+// development the repository's .git comes first (a build-info.json left over
+// from an earlier build in the folder would be out of date).
 function localCommit() {
+  return app.isPackaged ? fromBuildInfo() || fromGit() : fromGit() || fromBuildInfo();
+}
+
+function fromBuildInfo() {
   try {
     const info = JSON.parse(fs.readFileSync(path.join(__dirname, 'build-info.json'), 'utf8'));
-    if (info.commit) return { ...info, source: 'build' };
+    return info.commit ? { ...info, source: 'build' } : null;
   } catch {
-    // Not a build: try the repository.
+    return null;
   }
+}
+
+function fromGit() {
   try {
     const gitDir = path.join(__dirname, '.git');
     const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();

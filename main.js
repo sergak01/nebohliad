@@ -594,6 +594,11 @@ let reloadGiveUpTimer = null;
 function reloadPages(reason = 'by the user') {
   log.info('maps', 'reload', { reason: typeof reason === 'string' ? reason : 'by the user' });
   for (const id of SITE_IDS) siteHealth?.reset(id);
+  keepViewAcrossReload();
+  for (const view of Object.values(pages)) view.webContents.reload();
+}
+
+function keepViewAcrossReload() {
   viewBeforeReload = lastViews[settings.base] || settings.mapView;
   if (viewBeforeReload) {
     startupViewSet = false;
@@ -605,7 +610,6 @@ function reloadPages(reason = 'by the user') {
       startupViewSet = true;
     }, RELOAD_RESTORE_GIVE_UP_MS);
   }
-  for (const view of Object.values(pages)) view.webContents.reload();
 }
 
 function restoreMain() {
@@ -760,7 +764,10 @@ function watchPage(siteId, contents) {
       fixTimer = null;
       lastFix = Date.now();
       siteHealth?.reset(siteId);
-      if (!contents.isDestroyed()) contents.reload();
+      if (contents.isDestroyed()) return;
+      // The base map comes back with the site's own view; keep ours.
+      if (siteId === settings.base) keepViewAcrossReload();
+      contents.reload();
     }, wait);
   };
   contents.on('render-process-gone', (_event, details) => {

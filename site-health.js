@@ -18,6 +18,7 @@ const STALE_MIN_MS = 3 * 60_000;
 const LEARN_REQUESTS = 5; // Requests seen before staleness is judged.
 const GAPS_KEPT = 20;
 const CHECK_MS = 15_000;
+const BURST_MS = 3000;
 
 // sites: { id: partition }.
 function setupSiteHealth(sites, onChange) {
@@ -29,12 +30,16 @@ function setupSiteHealth(sites, onChange) {
       if (details.resourceType !== 'xhr' || details.statusCode >= 400) return;
       const s = state[site];
       const now = Date.now();
+      // Requests close together (a page load, one poll fetching several
+      // things) count as one: the gap between polls is what matters.
+      if (s.last && now - s.last < BURST_MS) return;
       if (s.last) {
         s.gaps.push(now - s.last);
         if (s.gaps.length > GAPS_KEPT) s.gaps.shift();
       }
       s.last = now;
       s.count++;
+      if (s.count === LEARN_REQUESTS) log.info('site', 'watching its data', { site, usualGapS: Math.round(median(s.gaps) / 1000) });
       if (s.stale) {
         s.stale = false;
         log.info('site', 'data flowing again', { site });

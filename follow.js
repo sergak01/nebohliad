@@ -2,10 +2,13 @@
 
 // Following a target near a location. While a target is within the alert
 // radius of a saved location, the base map centers on the nearest such
-// target, zoomed so that the location's whole radius circle stays in view;
-// when no target is near any more, the map goes back to the view it had
-// before. settings.follow: 'off' | 'stream' (only while someone watches the
-// LAN stream) | 'always'.
+// target. The closer it is to the location, the closer the zoom: at the edge
+// of the radius the whole circle is in view, within CLOSEST_SHARE of the
+// radius the map zooms in as far as it can, and in between the zoom moves
+// evenly from one to the other (the page works out the zoom levels, see
+// preload.js `runCommand` {follow}). When no target is near any more, the
+// map goes back to the view it had before. settings.follow: 'off' | 'stream'
+// (only while someone watches the LAN stream) | 'always'.
 //
 // If the user moves the map while it follows, they have taken over: the map
 // is left where they put it, and is not moved back at the end either.
@@ -16,6 +19,15 @@ const MODES = ['off', 'stream', 'always'];
 const MARGIN = 1.1; // A little room around the circle.
 const OWN_MOVE_MS = 2500; // Our fitBounds animation and its sync settle.
 const RECENTER_SHARE = 0.15; // Re-center when the target moved this share of the view.
+const CLOSEST_SHARE = 0.2; // Closer than this share of the radius: the closest zoom.
+const CLOSEST_VIEW_KM = 0.5; // Rough half-width of the view at the closest zoom.
+const ZOOM_STEP = 0.05; // Re-zoom when the closeness changed this much.
+
+// 0 at the edge of the radius (or beyond), 1 within CLOSEST_SHARE of it.
+function closeness(distance, radius) {
+  if (!(radius > 0)) return 0;
+  return Math.min(1, Math.max(0, (radius - distance) / (radius * (1 - CLOSEST_SHARE))));
+}
 
 function squareAround([lng, lat], halfKm) {
   const dLat = halfKm / 111.32;
@@ -57,11 +69,18 @@ function setupFollow(overlay) {
       last = null;
     }
     if (tookOver) return;
-    const halfKm = (distanceKm(nearest.target.center, nearest.location.center) + settings.alerts.radiusKm) * MARGIN;
+    const radius = settings.alerts.radiusKm;
+    const distance = distanceKm(nearest.target.center, nearest.location.center);
+    // The square that shows the whole circle, and how far to zoom in from it.
+    const halfKm = (distance + radius) * MARGIN;
+    const t = closeness(distance, radius);
+    // Roughly how wide the view will be, so small moves are not chased when
+    // zoomed out but are when zoomed in.
+    const viewKm = halfKm ** (1 - t) * CLOSEST_VIEW_KM ** t;
     const moved = last ? distanceKm(last.center, nearest.target.center) : Infinity;
-    if (last && last.key === nearest.key && moved < last.halfKm * RECENTER_SHARE && Math.abs(halfKm - last.halfKm) < last.halfKm * RECENTER_SHARE) return;
-    last = { key: nearest.key, center: nearest.target.center, halfKm };
-    move({ bbox: squareAround(nearest.target.center, halfKm) });
+    if (last && last.key === nearest.key && moved < viewKm * RECENTER_SHARE && Math.abs(t - last.t) < ZOOM_STEP) return;
+    last = { key: nearest.key, center: nearest.target.center, t };
+    move({ follow: { center: nearest.target.center, bbox: squareAround(nearest.target.center, halfKm), closeness: t } });
   }
 
   function stop() {
@@ -93,4 +112,4 @@ function setupFollow(overlay) {
   };
 }
 
-module.exports = { setupFollow, MODES };
+module.exports = { setupFollow, closeness, MODES };

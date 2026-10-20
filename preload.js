@@ -292,6 +292,15 @@ function installMapSync(sendView, sendReady) {
   function runCommand(command) {
     const map = mainMap();
     if (!map) return;
+    // Following a target (follow.js): centered on it, zoomed from "the whole
+    // circle in view" (closeness 0) to as close as this map goes (1).
+    if (command.follow) {
+      const { center, bbox, closeness } = command.follow;
+      const maxZoom = map.getMaxZoom();
+      const fitZoom = Math.min(maxZoom, map.cameraForBounds(bbox, { padding: 60 })?.zoom ?? map.getZoom());
+      map.flyTo({ center, zoom: fitZoom + (maxZoom - fitZoom) * Math.min(1, Math.max(0, closeness || 0)), duration: 800 });
+      return;
+    }
     if (command.bbox) map.fitBounds(command.bbox, { padding: 60, maxZoom: 12, duration: 800 });
     // Restoring a saved view at start-up: no animation.
     else if (command.jump) {

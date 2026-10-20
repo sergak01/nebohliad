@@ -696,6 +696,35 @@ function installFrameLimit() {
 
 const frameLimit = contextBridge.executeInMainWorld({ func: installFrameLimit });
 
+// Executed in the page's main world before its scripts: notes when a message
+// last arrived on any of the page's WebSockets (ukrainealarm's targets come
+// over one). Only the time, never the contents.
+function installSocketWatch() {
+  const NativeWebSocket = window.WebSocket;
+  let lastMessageAt = 0;
+  class WebSocket extends NativeWebSocket {
+    constructor(...args) {
+      super(...args);
+      this.addEventListener('message', () => {
+        lastMessageAt = Date.now();
+      });
+    }
+  }
+  window.WebSocket = WebSocket;
+  return { lastMessageAt: () => lastMessageAt };
+}
+
+const socketWatch = contextBridge.executeInMainWorld({ func: installSocketWatch });
+
+// Tells main (site-health.js) that data is arriving, at most every 15 s.
+let socketReported = 0;
+setInterval(() => {
+  const at = socketWatch.lastMessageAt();
+  if (at <= socketReported) return;
+  socketReported = at;
+  ipcRenderer.send('site-data');
+}, 15_000);
+
 const mapSync = contextBridge.executeInMainWorld({
   func: installMapSync,
   args: [

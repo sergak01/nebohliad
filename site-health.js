@@ -1,11 +1,15 @@
 'use strict';
 
 // Is each site's data still coming in? Two signs, both passive:
-// - stale: the page's own XHR/fetch requests (seen through its session's
-//   webRequest, counted only, never read) stopped. The site's usual rhythm
-//   is learned first (median gap between requests); "stale" is silence longer
-//   than max(STALE_MIN_MS, 5 × that gap). A site that never polls this way
-//   (e.g. it uses a WebSocket) is never called stale.
+// - stale: the site's data stopped coming. Two kinds of signs, counted only,
+//   never read: the page's XHR/fetch requests to its own domain (seen
+//   through its session's webRequest; analytics and Cloudflare's /cdn-cgi/
+//   do not count, their rhythm says nothing about the data), and messages on
+//   the page's WebSockets (preload.js `site-data`; ukrainealarm gets its
+//   targets over one, which webRequest does not see). The site's usual
+//   rhythm is learned first (median gap between signs); "stale" is silence
+//   longer than max(STALE_MIN_MS, 5 × that gap). A site with neither sign is
+//   never called stale.
 // - challenge: preload.js reports a Cloudflare Turnstile check on screen
 //   (war-monitor), which map-only mode or the click-through top layer can
 //   hide from the user.
@@ -15,37 +19,57 @@ const { session } = require('electron');
 const log = require('./logger');
 
 const STALE_MIN_MS = 3 * 60_000;
-const LEARN_REQUESTS = 5; // Requests seen before staleness is judged.
+const LEARN_SIGNS = 5; // Signs seen before staleness is judged.
 const GAPS_KEPT = 20;
 const CHECK_MS = 15_000;
 const BURST_MS = 3000;
 
-// sites: { id: partition }.
+// The site's own domain: "https://map.war-monitor.org/" -> "war-monitor.org".
+const domainOf = (url) => new URL(url).hostname.split('.').slice(-2).join('.');
+
+function ownRequest(url, domain) {
+  try {
+    const { hostname, pathname } = new URL(url);
+    return (hostname === domain || hostname.endsWith(`.${domain}`)) && !pathname.startsWith('/cdn-cgi/');
+  } catch {
+    return false;
+  }
+}
+
+// sites: { id: { partition, url } }.
 function setupSiteHealth(sites, onChange) {
   const state = {};
 
-  for (const [site, partition] of Object.entries(sites)) {
+  for (const [site, { partition, url }] of Object.entries(sites)) {
     state[site] = { last: 0, count: 0, gaps: [], stale: false, challenge: false };
+    const domain = domainOf(url);
     session.fromPartition(partition).webRequest.onCompleted({ urls: ['*://*/*'] }, (details) => {
-      if (details.resourceType !== 'xhr' || details.statusCode >= 400) return;
-      const s = state[site];
-      const now = Date.now();
-      // Requests close together (a page load, one poll fetching several
-      // things) count as one: the gap between polls is what matters.
-      if (s.last && now - s.last < BURST_MS) return;
-      if (s.last) {
-        s.gaps.push(now - s.last);
-        if (s.gaps.length > GAPS_KEPT) s.gaps.shift();
-      }
-      s.last = now;
-      s.count++;
-      if (s.count === LEARN_REQUESTS) log.info('site', 'watching its data', { site, usualGapS: Math.round(median(s.gaps) / 1000) });
-      if (s.stale) {
-        s.stale = false;
-        log.info('site', 'data flowing again', { site });
-        onChange();
-      }
+      if (details.resourceType !== 'xhr' || details.statusCode >= 400 || !ownRequest(details.url, domain)) return;
+      dataSeen(site);
     });
+  }
+
+  // A sign that the site's data is coming: one of its own requests done, or
+  // messages on its WebSockets.
+  function dataSeen(site) {
+    const s = state[site];
+    if (!s) return;
+    const now = Date.now();
+    // Signs close together (a page load, one poll fetching several things)
+    // count as one: the gap between polls is what matters.
+    if (s.last && now - s.last < BURST_MS) return;
+    if (s.last) {
+      s.gaps.push(now - s.last);
+      if (s.gaps.length > GAPS_KEPT) s.gaps.shift();
+    }
+    s.last = now;
+    s.count++;
+    if (s.count === LEARN_SIGNS) log.info('site', 'watching its data', { site, usualGapS: Math.round(median(s.gaps) / 1000) });
+    if (s.stale) {
+      s.stale = false;
+      log.info('site', 'data flowing again', { site });
+      onChange();
+    }
   }
 
   function median(values) {
@@ -58,7 +82,7 @@ function setupSiteHealth(sites, onChange) {
   setInterval(() => {
     const now = Date.now();
     for (const [site, s] of Object.entries(state)) {
-      if (s.count < LEARN_REQUESTS || s.stale) continue;
+      if (s.count < LEARN_SIGNS || s.stale) continue;
       if (now - s.last > limit(s)) {
         s.stale = true;
         log.warn('site', 'no data for a while', { site, minutes: Math.round((now - s.last) / 60_000) });
@@ -93,7 +117,7 @@ function setupSiteHealth(sites, onChange) {
     );
   }
 
-  return { setChallenge, reset, status };
+  return { dataSeen, setChallenge, reset, status };
 }
 
 module.exports = { setupSiteHealth };

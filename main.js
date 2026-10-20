@@ -289,6 +289,12 @@ ipcMain.on('site-challenge', (event, on) => {
   if (site) siteHealth?.setChallenge(site, on);
 });
 
+// Messages arrived on the page's WebSockets since its last report.
+ipcMain.on('site-data', (event) => {
+  const site = siteOf(event.sender);
+  if (site) siteHealth?.dataSeen(site);
+});
+
 // A click on the toolbar's notice chip: bring the Cloudflare check within
 // reach (interact with the top layer when it is there), or reload the maps
 // when a site's data stopped.
@@ -985,7 +991,10 @@ if (!app.requestSingleInstanceLock()) {
     versionCheck = setupVersionCheck({ settings, changed: pushState });
     const local = versionCheck.state().local;
     log.info('app', 'start', { version: APP_VERSION, commit: local?.commit?.slice(0, 7) || null, packaged: app.isPackaged });
-    siteHealth = setupSiteHealth(Object.fromEntries(SITE_IDS.map((id) => [id, SITES[id].partition])), pushState);
+    siteHealth = setupSiteHealth(
+      Object.fromEntries(SITE_IDS.map((id) => [id, { partition: SITES[id].partition, url: SITES[id].url }])),
+      pushState,
+    );
     follow = setupFollow({
       settings,
       // Straight to the page: following must not bring a hidden window back.

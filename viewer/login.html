@@ -27,13 +27,16 @@
       <button type="submit" id="login-submit" class="active"></button>
       <p class="login-error" id="login-error" aria-live="polite"></p>
       <p class="hint" id="pair-text"></p>
-      <!-- Invited from the app: pick the number it shows. -->
-      <div class="pair" id="pair" hidden>
-        <p class="pair-title" id="pair-title"></p>
+    </form>
+    <!-- Invited from the app: pick the number it shows (a modal over
+         everything, so it is in view in any orientation). -->
+    <div class="modal" id="pair" hidden>
+      <div class="modal-box pair-box" role="alertdialog" aria-modal="true" aria-labelledby="pair-title">
+        <h2 id="pair-title"></h2>
         <div class="pair-choices" id="pair-choices"></div>
         <p class="hint" id="pair-left"></p>
       </div>
-    </form>
+    </div>
     <div id="notice" class="bar"></div>
     <script>
       window.NEBOHLIAD = __CONFIG__;

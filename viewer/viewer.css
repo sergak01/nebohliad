@@ -143,9 +143,8 @@ body.login { overflow: auto; display: flex; align-items: center; justify-content
 .modal-box p { margin: 0 0 16px; color: #c9ccd3; font-size: 14px; }
 .modal-box button { width: 100%; font-size: 16px; padding: 10px; border-radius: 6px; }.modal[hidden] { display: none; }
 
-/* Invite from the app: three numbers to pick from. */
-.pair { margin-top: 6px; padding: 14px; border: 1px solid #f5b301; border-radius: 10px; }
-.pair[hidden] { display: none; }
-.pair-title { margin: 0 0 10px; font-size: 15px; font-weight: 600; }
+/* Invite from the app: three numbers to pick from, in a modal (.modal). */
+.pair-box { border-color: #f5b301; }
+.pair-box .hint { margin: 12px 0 0; }
 .pair-choices { display: flex; gap: 10px; justify-content: center; }
-.pair-choices button { flex: 1; max-width: 96px; height: 64px; font: 600 28px/1 "Segoe UI", system-ui, sans-serif; border-radius: 8px; }
+.pair-choices button { flex: 1; max-width: 104px; height: 72px; font: 600 30px/1 "Segoe UI", system-ui, sans-serif; border-radius: 8px; }

@@ -1,5 +1,18 @@
 # TODO
 
+## Releases for others (decided 2026-10-20)
+
+Now: unsigned installer + portable on GitHub Releases (tag v* → draft
+release from CI, published by hand); README "Install" explains the browser
+and SmartScreen warnings. Later:
+- a ZIP of the `dist:local` build (stock electron.exe) as a third file, for
+  PCs with Smart App Control on (works on the author's PC, not guaranteed
+  elsewhere);
+- the README "for personal use" note says it is not a product for others:
+  reword it before applying to SignPath (and it reads oddly next to
+  downloads anyway);
+- SignPath Foundation signing (below).
+
 ## CI signing through SignPath Foundation (prepared 2026-10-20)
 
 `.github/workflows/build.yml` builds on every push / PR (unsigned artifacts)

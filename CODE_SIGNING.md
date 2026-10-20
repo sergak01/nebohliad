@@ -3,8 +3,8 @@
 Free code signing provided by [SignPath.io](https://about.signpath.io/),
 certificate by [SignPath Foundation](https://signpath.org/).
 
-> Status: being set up. Until the SignPath Foundation project is approved,
-> builds are unsigned (see [README](README.md#build)).
+> Status: planned. Until a SignPath Foundation project is approved, builds
+> are unsigned (see [README](README.md#install)).
 
 ## What is signed
 

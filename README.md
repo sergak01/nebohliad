@@ -89,6 +89,24 @@
 локально в `%APPDATA%\Nebohliad`. Трансляція, коли її увімкнено, приймає
 підключення лише з локальної мережі й лише за посиланням із ключем.
 
+## Встановлення
+Готові файли для Windows 10/11 (x64) — у
+[Releases](https://github.com/sergak01/nebohliad/releases):
+`Nebohliad-Setup-<версія>.exe` (інсталятор, без прав адміністратора) або
+`Nebohliad-<версія>-portable.exe` (без встановлення).
+
+Файли не підписані, тож Windows попередить:
+- браузер може сказати, що файл рідко завантажують: «Зберегти»;
+- під час першого запуску SmartScreen покаже «Windows захистила ваш ПК»:
+  «Докладніше» → «Усе одно запустити». Далі застосунок запускається без
+  питань;
+- коли вперше ввімкнете трансляцію, брандмауер Windows спитає дозволу на
+  доступ із локальної мережі.
+
+Якщо в Windows 11 увімкнено Smart App Control, він може заблокувати
+непідписаний файл без можливості запустити; тоді лишається зібрати
+застосунок самому (див. нижче).
+
 ## Збірка
 Потрібні Node.js і Windows.
 
@@ -101,8 +119,8 @@ npm run dist:local # лише dist/win-unpacked для цього ПК (див. 
 
 GitHub Actions ([build.yml](.github/workflows/build.yml)) збирає застосунок
 на кожен коміт; файли — в артефактах запуску, а для тегу `v*` — у
-чернетці релізу. Підпис через SignPath Foundation налаштовується (див.
-[політику підпису коду](CODE_SIGNING.md)); доти збірки не підписані.
+чернетці релізу. Збірки не підписані; підпис через SignPath Foundation —
+у планах (див. [політику підпису коду](CODE_SIGNING.md)).
 
 Локальна збірка не підписана. Якщо в Windows 11
 увімкнено Smart App Control, він оцінює непідписаний файл за репутацією й
@@ -224,6 +242,22 @@ version of the code; can be turned off in the settings). Locations and search hi
 `%APPDATA%\Nebohliad`. The stream, when turned on, accepts connections only
 from the local network and only with a link that carries a key.
 
+### Install
+Ready files for Windows 10/11 (x64) are in
+[Releases](https://github.com/sergak01/nebohliad/releases):
+`Nebohliad-Setup-<version>.exe` (installer, no administrator rights needed)
+or `Nebohliad-<version>-portable.exe` (no installation).
+
+The files are not signed, so Windows will warn:
+- the browser may say the file is not commonly downloaded: choose "Keep";
+- on the first run SmartScreen shows "Windows protected your PC": "More
+  info" → "Run anyway". After that the app starts without questions;
+- the first time you turn the stream on, Windows Firewall asks to allow
+  access from the local network.
+
+If Smart App Control is on in Windows 11, it may block an unsigned file with
+no way to run it; then the way left is to build the app yourself (see below).
+
 ### Build
 Requires Node.js and Windows.
 
@@ -236,8 +270,8 @@ npm run dist:local # only dist/win-unpacked, for this PC (see below)
 
 GitHub Actions ([build.yml](.github/workflows/build.yml)) builds the app on
 every commit; the files are in the run's artifacts and, for a `v*` tag, in a
-draft release. Signing through SignPath Foundation is being set up (see the
-[code signing policy](CODE_SIGNING.md)); until then builds are unsigned.
+draft release. Builds are unsigned; signing through SignPath Foundation is
+planned (see the [code signing policy](CODE_SIGNING.md)).
 
 A local build is unsigned. If
 Smart App Control is on in Windows 11, it judges an unsigned file by

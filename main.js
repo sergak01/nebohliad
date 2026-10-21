@@ -332,6 +332,15 @@ ipcMain.on('site-data', (event) => {
   if (site) siteHealth?.dataSeen(site);
 });
 
+// The page's WebSockets: { open, failed (in the last 2 min) }.
+ipcMain.on('site-socket', (event, socket) => {
+  const site = siteOf(event.sender);
+  if (site) siteHealth?.setSocket(site, socket);
+});
+
+// Settings → Maps "Data" rows ask for it every few seconds while shown.
+ipcMain.handle('ui:site-health', () => siteHealth?.status() || {});
+
 // A click on the toolbar's notice chip: bring the Cloudflare check within
 // reach (interact with the top layer when it is there), or reload the maps
 // when a site's data stopped.
@@ -842,6 +851,9 @@ function routeExternalLinks(webContents) {
 const HUNG_MS = 20_000;
 const PAGE_FIX_EVERY_MS = 5 * 60_000;
 
+// Per site: reload its page (rate-limited, keeps the base map's view).
+const pageFixers = {};
+
 function watchPage(siteId, contents) {
   let hungTimer = null;
   let lastFix = 0;
@@ -861,6 +873,7 @@ function watchPage(siteId, contents) {
       contents.reload();
     }, wait);
   };
+  pageFixers[siteId] = fix;
   contents.on('render-process-gone', (_event, details) => {
     if (details.reason === 'clean-exit' || quitting) return;
     fix(`renderer gone (${details.reason})`);
@@ -1077,6 +1090,13 @@ if (!app.requestSingleInstanceLock()) {
     siteHealth = setupSiteHealth(
       Object.fromEntries(SITE_IDS.map((id) => [id, { partition: SITES[id].partition, url: SITES[id].url }])),
       pushState,
+      {
+        // Not war-monitor: a reload can bring its Cloudflare check back.
+        autoReload: { ukrainealarm: true },
+        reload: (site) => pageFixers[site]?.('site data stopped'),
+        // The site's own "data paused" notice: nothing a reload would fix.
+        paused: (site) => Boolean(siteNotices[site]),
+      },
     );
     follow = setupFollow({
       settings,

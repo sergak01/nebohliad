@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="theme.css" />
     <link rel="stylesheet" href="controls.css" />
     <style>
+      #site-health .row + .row { border-top: 1px solid var(--line); }
       .update-notes { white-space: pre-line; max-height: 9em; overflow: auto; margin-top: 4px; }
       html, body { height: 100%; overflow: hidden; }
       body { display: flex; background: var(--bg); }
@@ -101,6 +102,10 @@
             <div class="text"><span data-i18n="settings.maps.alertAreas"></span><span class="desc" data-i18n="settings.maps.alertAreas.desc"></span></div>
             <button class="switch" id="alert-areas" role="switch"></button>
           </div>
+        </div>
+        <div class="card">
+          <p class="hint" data-i18n="settings.maps.data"></p>
+          <div id="site-health"></div>
         </div>
         <div class="card">
           <div class="row">

@@ -851,31 +851,62 @@ const frameLimit = contextBridge.executeInMainWorld({ func: installFrameLimit })
 
 // Executed in the page's main world before its scripts: notes when a message
 // last arrived on any of the page's WebSockets (ukrainealarm's targets come
-// over one). Only the time, never the contents.
+// over one), how many are open, and how many attempts failed in the last
+// 2 min (closed without ever opening). Only times and counts, never the
+// contents or addresses.
 function installSocketWatch() {
   const NativeWebSocket = window.WebSocket;
+  const FAILURES_KEPT_MS = 120_000;
   let lastMessageAt = 0;
+  let open = 0;
+  const failures = [];
   class WebSocket extends NativeWebSocket {
     constructor(...args) {
       super(...args);
+      let opened = false;
+      this.addEventListener('open', () => {
+        opened = true;
+        open++;
+      });
+      this.addEventListener('close', () => {
+        if (opened) open--;
+        else failures.push(Date.now());
+        opened = false;
+      });
       this.addEventListener('message', () => {
         lastMessageAt = Date.now();
       });
     }
   }
   window.WebSocket = WebSocket;
-  return { lastMessageAt: () => lastMessageAt };
+  return {
+    lastMessageAt: () => lastMessageAt,
+    state: () => {
+      const since = Date.now() - FAILURES_KEPT_MS;
+      while (failures.length && failures[0] < since) failures.shift();
+      return { open, failed: failures.length };
+    },
+  };
 }
 
 const socketWatch = contextBridge.executeInMainWorld({ func: installSocketWatch });
 
-// Tells main (site-health.js) that data is arriving, at most every 15 s.
+// Tells main (site-health.js) every 15 s whether data arrived on the page's
+// sockets, and their state when it changed.
 let socketReported = 0;
+let socketStateSent = '';
 setInterval(() => {
   const at = socketWatch.lastMessageAt();
-  if (at <= socketReported) return;
-  socketReported = at;
-  ipcRenderer.send('site-data');
+  if (at > socketReported) {
+    socketReported = at;
+    ipcRenderer.send('site-data');
+  }
+  const state = socketWatch.state();
+  const text = JSON.stringify(state);
+  if (text !== socketStateSent) {
+    socketStateSent = text;
+    ipcRenderer.send('site-socket', state);
+  }
 }, 15_000);
 
 const mapSync = contextBridge.executeInMainWorld({

@@ -69,7 +69,50 @@ function render() {
   renderStream();
   renderShortcuts();
   renderUpdate();
+  renderSiteHealth();
 }
+
+// Is each site's data coming (site-health.js), asked every few seconds:
+// when data last came, the usual rhythm, the realtime connection.
+async function renderSiteHealth() {
+  if (!state?.sites || document.hidden) return;
+  let health = {};
+  try {
+    health = await overlay.invoke('ui:site-health');
+  } catch {
+    return;
+  }
+  const box = $('site-health');
+  box.replaceChildren(
+    ...state.sites.map((site) => {
+      const h = health[site.id] || {};
+      const parts = [];
+      if (h.challenge) parts.push(t('settings.maps.data.challenge'));
+      if (h.staleMinutes) parts.push(t('settings.maps.data.stale').replace('{m}', h.staleMinutes));
+      else if (h.lastDataAt) {
+        const s = Math.max(0, Math.round((Date.now() - h.lastDataAt) / 1000));
+        parts.push(t('settings.maps.data.last').replace('{ago}', s < 90 ? `${s} ${t('unit.s')}` : `${Math.round(s / 60)} ${t('unit.min')}`));
+      } else parts.push(t('settings.maps.data.none'));
+      if (h.learning) parts.push(t('settings.maps.data.learning'));
+      else if (h.usualGapS) parts.push(t('settings.maps.data.usual').replace('{n}', h.usualGapS));
+      if (h.realtime) parts.push(t(`settings.maps.data.realtime.${h.realtime}`));
+      const row = document.createElement('div');
+      row.className = 'row';
+      const text = document.createElement('div');
+      text.className = 'text';
+      const name = document.createElement('span');
+      name.textContent = site.label;
+      const desc = document.createElement('span');
+      desc.className = 'desc';
+      desc.classList.toggle('accent', Boolean(h.staleMinutes || h.challenge || h.realtime === 'failing'));
+      desc.textContent = parts.join(' · ');
+      text.append(name, desc);
+      row.append(text);
+      return row;
+    }),
+  );
+}
+setInterval(renderSiteHealth, 5000);
 
 // The command that brings a local build up to date (README "Build").
 const REBUILD_COMMAND = 'git pull && npm run dist:local';

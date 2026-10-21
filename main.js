@@ -184,6 +184,30 @@ function layout() {
 }
 
 // Put the base page in the main window and the other one in the overlay.
+// Official air-alert areas: read from the ukrainealarm page (its own loaded
+// data, no requests) and drawn inside war-monitor's map while war-monitor is
+// the base; ukrainealarm shows its own when it is the base. The page sends
+// the geometry only when the set of alerts changed (key).
+const ALERT_AREAS_MS = 5000;
+let alertAreas = { key: null, features: null };
+
+const alertAreasWanted = () => settings.alertAreas && settings.base === 'war-monitor';
+
+function sendAlertAreas() {
+  const data = alertAreasWanted() && alertAreas.features ? { type: 'FeatureCollection', features: alertAreas.features } : null;
+  pages['war-monitor']?.webContents.send('map-alert-areas', data);
+}
+
+setInterval(() => {
+  if (settings && alertAreasWanted()) pages.ukrainealarm?.webContents.send('read-alert-areas', alertAreas.key);
+}, ALERT_AREAS_MS).unref?.();
+
+ipcMain.on('map-alert-areas', (event, result) => {
+  if (siteOf(event.sender) !== 'ukrainealarm' || typeof result?.key !== 'string' || !Array.isArray(result.features)) return;
+  alertAreas = { key: result.key, features: result.features };
+  sendAlertAreas();
+});
+
 function placePages() {
   for (const view of Object.values(pages)) {
     for (const win of [mainWindow, overlayWindow]) {
@@ -197,6 +221,7 @@ function placePages() {
   layout();
   sendPageModes();
   locations?.redraw();
+  sendAlertAreas();
   applyClickThrough();
 }
 
@@ -339,6 +364,7 @@ ipcMain.on('site-notice', (event, text) => {
 
 ipcMain.on('map-ready', (event) => {
   realignMaps();
+  if (siteOf(event.sender) === 'war-monitor') sendAlertAreas();
   if (pin) event.sender.send('map-pin', pin);
   locations?.redraw();
   if (!homeShown && event.sender === basePage()) {
@@ -450,6 +476,7 @@ function pushState() {
     nearby,
   };
   state.closeToTray = settings.closeToTray;
+  state.alertAreas = settings.alertAreas;
   state.fpsLimit = settings.fpsLimit;
   state.shortcuts = shortcuts?.list() || [];
   state.follow = settings.follow;
@@ -738,6 +765,11 @@ ipcMain.on('ui:toolbar-set', (_event, { key, value }) => {
     alertsEnabled: setAlertsEnabled,
     alertRadiusKm: setAlertRadius,
     closeToTray: setCloseToTray,
+    alertAreas: (enabled) => {
+      settings.alertAreas = Boolean(enabled);
+      sendAlertAreas();
+      stateChanged();
+    },
     fpsLimit: setFpsLimit,
     // Quiet hours: { enabled?, from?, to? } as "HH:MM".
     quiet: (value) => {

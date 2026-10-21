@@ -52,6 +52,7 @@ function render() {
   setSwitch('alerts-enabled', state.alerts.enabled);
   if (document.activeElement !== $('radius')) $('radius').value = state.alerts.radiusKm;
   setSwitch('close-to-tray', state.closeToTray);
+  setSwitch('alert-areas', state.alertAreas);
   for (const button of $('follow').children) button.classList.toggle('active', button.dataset.value === state.follow);
   setSwitch('quiet-enabled', state.quiet?.enabled);
   if (document.activeElement !== $('quiet-from')) $('quiet-from').value = state.quiet?.from || '23:00';
@@ -519,6 +520,7 @@ $('alerts-test').addEventListener('click', async () => {
   $('alerts-status').textContent = t(shown ? 'menu.alerts.testSent' : 'menu.alerts.unsupported');
 });
 $('close-to-tray').addEventListener('click', () => set('closeToTray', !state.closeToTray));
+$('alert-areas').addEventListener('click', () => set('alertAreas', !state.alertAreas));
 for (const button of $('follow').children) button.addEventListener('click', () => set('follow', button.dataset.value));
 $('quiet-enabled').addEventListener('click', () => set('quiet', { enabled: !state.quiet?.enabled }));
 $('quiet-from').addEventListener('change', (event) => set('quiet', { from: event.target.value }));

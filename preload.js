@@ -281,6 +281,10 @@ function installMapSync(sendView, sendReady) {
     markMainMap();
     renderAttribution();
     map.on('styledata', scheduleLayerFilter);
+    // A new style (the site's theme switch) drops our alert-area layers.
+    map.on('styledata', () => {
+      if (alertAreas && map === mainMap() && !map.getSource(AREA_SOURCE)) placeAlertAreas();
+    });
     map.on('load', scheduleLayerFilter);
     // `user`: the move came right after the user's input on this map (a
     // drag, wheel, touch, double-click, keys, MapLibre's zoom buttons); moves
@@ -700,7 +704,91 @@ function installMapSync(sendView, sendReady) {
     });
   }
 
-  return { setView, emitView, runCommand, setPin, setLayerFilter, setLocations, readTargets, setAttribution, readAirAlerts };
+  // The regions with an official air alert now (ukrainealarm only), as
+  // GeoJSON features { rank, level }, from the same already loaded data as
+  // readAirAlerts. `known`: the key the caller has; unchanged → { key } only.
+  // A region inside an alerted larger one is left out (no double fill).
+  async function readAlertAreas(known) {
+    if (window.location.hostname !== 'map.ukrainealarm.com') return null;
+    const alerts = window.ukraineAlarmLatestAlerts;
+    if (!window.detailMapGeometry?.load || !Array.isArray(alerts)) return null;
+    geometryLoad ||= window.detailMapGeometry.load();
+    const collection = await geometryLoad;
+    const levels = new Map();
+    for (const a of alerts) {
+      const air = (a.activeAlerts || []).find((x) => x.type === 'AIR');
+      if (air) levels.set(String(a.regionId), air.activeAlertLevels?.[0]?.alertLevel || '');
+    }
+    const key = [...levels].map(([id, level]) => `${id}:${level}`).sort().join('|');
+    if (key === known) return { key };
+    const idOf = (f) => String(f.properties?.regionId ?? f.id);
+    const alerted = collection.features
+      .filter((f) => levels.has(idOf(f)) && /Polygon$/.test(f.geometry?.type || ''))
+      .sort((a, b) => (a.properties?.rank || 0) - (b.properties?.rank || 0));
+    const kept = [];
+    for (const f of alerted) {
+      const [w, s, e, n] = boxOf(f);
+      const middle = [(w + e) / 2, (s + n) / 2];
+      const inside = kept.some((k) => {
+        const polygons = k.geometry.type === 'Polygon' ? [k.geometry.coordinates] : k.geometry.coordinates;
+        return (k.properties?.rank || 0) < (f.properties?.rank || 0) && polygons.some((p) => polygonContains(p, middle[0], middle[1]));
+      });
+      if (!inside) kept.push(f);
+    }
+    const features = kept.map((f) => ({
+      type: 'Feature',
+      geometry: f.geometry,
+      properties: { rank: f.properties?.rank || 0, level: levels.get(idOf(f)) },
+    }));
+    return { key, features };
+  }
+
+  // Those areas drawn inside this page's main map (war-monitor as the base):
+  // a light fill and an outline, under its targets and labels, so the site's
+  // own panels and cards stay above them. `data`: a FeatureCollection or null.
+  const AREA_SOURCE = 'nebohliad-alert-areas';
+  const AREA_LAYERS = ['nebohliad-alert-areas-fill', 'nebohliad-alert-areas-line'];
+  const AREA_COLOR = ['match', ['get', 'level'], 'Red', '#e5484d', '#f5b301'];
+  let alertAreas = null;
+
+  function placeAlertAreas() {
+    const map = mainMap();
+    if (!map) return;
+    try {
+      const source = map.getSource(AREA_SOURCE);
+      if (!alertAreas) {
+        for (const id of AREA_LAYERS) if (map.getLayer(id)) map.removeLayer(id);
+        if (source) map.removeSource(AREA_SOURCE);
+        return;
+      }
+      if (source) {
+        source.setData(alertAreas);
+        return;
+      }
+      map.addSource(AREA_SOURCE, { type: 'geojson', data: alertAreas });
+      // Below the first label or target layer (war-monitor's are "wm-…").
+      const before = map.getLayersOrder().find((id) => /^wm-/.test(id) || map.getLayer(id)?.type === 'symbol');
+      map.addLayer({ id: AREA_LAYERS[0], type: 'fill', source: AREA_SOURCE, paint: { 'fill-color': AREA_COLOR, 'fill-opacity': 0.16 } }, before);
+      map.addLayer(
+        {
+          id: AREA_LAYERS[1],
+          type: 'line',
+          source: AREA_SOURCE,
+          paint: { 'line-color': AREA_COLOR, 'line-opacity': 0.8, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.6, 10, 1.6] },
+        },
+        before,
+      );
+    } catch (error) {
+      console.warn(`[nebohliad] alert areas: ${error.message}`);
+    }
+  }
+
+  function setAlertAreas(data) {
+    alertAreas = data?.type === 'FeatureCollection' ? data : null;
+    placeAlertAreas();
+  }
+
+  return { setView, emitView, runCommand, setPin, setLayerFilter, setLocations, readTargets, setAttribution, readAirAlerts, readAlertAreas, setAlertAreas };
 }
 
 // Executed in the page's main world before its scripts: caps how often
@@ -803,6 +891,16 @@ ipcRenderer.on('emit-map-view', () => mapSync.emitView());
 ipcRenderer.on('map-command', (_event, command) => mapSync.runCommand(command));
 ipcRenderer.on('map-pin', (_event, pin) => mapSync.setPin(pin));
 ipcRenderer.on('map-locations', (_event, data) => mapSync.setLocations(data));
+ipcRenderer.on('map-alert-areas', (_event, data) => mapSync.setAlertAreas(data));
+ipcRenderer.on('read-alert-areas', async (_event, known) => {
+  let result = null;
+  try {
+    result = await mapSync.readAlertAreas(known);
+  } catch {
+    // Page not ready or changed: report nothing.
+  }
+  ipcRenderer.send('map-alert-areas', result);
+});
 ipcRenderer.on('read-air-alerts', async (_event, points) => {
   let result = null;
   try {

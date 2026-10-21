@@ -21,6 +21,9 @@ const DEFAULTS = {
   // Notify when a target is within radiusKm of any location.
   alerts: { enabled: true, radiusKm: 30 },
   closeToTray: true, // Closing the main window hides it to the tray.
+  // Official air-alert areas (from the ukrainealarm page) drawn on
+  // war-monitor's map while it is the base.
+  alertAreas: true,
   fpsLimit: 20, // Max map redraws per second in both pages; 60 = no limit.
   // Nominatim server for search and locations; '' turns search off. Not in
   // the UI: lets search be switched or stopped without a new release.
@@ -82,6 +85,7 @@ function loadSettings(siteIds) {
   if (!Array.isArray(settings.locations)) settings.locations = [];
   if (!['off', 'stream', 'always'].includes(settings.follow)) settings.follow = DEFAULTS.follow;
   if (typeof settings.updateCheck !== 'boolean') settings.updateCheck = DEFAULTS.updateCheck;
+  if (typeof settings.alertAreas !== 'boolean') settings.alertAreas = DEFAULTS.alertAreas;
   for (const key of ['updateSkip', 'updateNotified']) if (typeof settings[key] !== 'string') settings[key] = null;
   const time = /^([01]\d|2[0-3]):[0-5]\d$/;
   const q = settings.quiet;

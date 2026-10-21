@@ -476,10 +476,13 @@ function setupStream(overlay, getPipArea) {
     for (const [key, value] of viewerReports) if (now - value.at > 5 * 60_000) viewerReports.delete(key);
     const othersOk = [...viewerReports].some(([key, value]) => key !== id && value.ok && now - value.at < OTHERS_OK_MS);
     const composing = now - lastComposedAt < 10_000;
+    // Who complains and what it can see: which device keeps doing it.
+    const who = { viewer: id, readable: report?.readable ?? null, frames: report?.frames ?? null, frozenS: Math.round((Number(report?.frozenMs) || 0) / 1000) };
     if (stuck && othersOk) {
-      log.info('stream', 'one viewer stuck while others are fine: it reconnects itself', { what: report?.black ? 'black' : 'frozen', readable: report?.readable ?? null });
+      log.info('stream', 'one viewer stuck while others are fine: it reconnects itself', { what: report?.black ? 'black' : 'frozen', ...who });
       return { reset: false };
     }
+    if (stuck) log.warn('stream', 'viewer reports a stuck picture', { what: report?.black ? 'black' : 'frozen', ...who, others: viewerReports.size - (id ? 1 : 0) });
     if (stuck && composing) {
       // Frames are made here, but the viewer's picture stands still or is
       // black: the video path is stuck.

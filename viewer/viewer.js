@@ -262,9 +262,10 @@
       lastSeq = frame.seq;
       lastChangeAt = Date.now();
     }
-    // Without a readable marker, new decoded frames are what "alive" means.
+    // Without a readable marker, new decoded frames are what "alive" means;
+    // with neither (an old TV browser), there is nothing to judge by.
     const frames = decodedFrames();
-    if (!markerSeen && frames !== null && frames !== lastFrames) {
+    if (!markerSeen && (frames === null || frames !== lastFrames)) {
       lastFrames = frames;
       lastChangeAt = Date.now();
     }
@@ -278,14 +279,14 @@
     const stuck = frozenMs >= FROZEN_MS || blackChecks >= 2;
     if (stuck && Date.now() - lastFixAt > 60_000) {
       lastFixAt = Date.now();
-      const answer = await report({ id: viewerId, seq: lastSeq, frozenMs, black: blackChecks >= 2, mode, readable: markerSeen });
+      const answer = await report({ id: viewerId, seq: lastSeq, frozenMs, black: blackChecks >= 2, mode, readable: markerSeen, frames: decodedFrames() !== null });
       // Reconnect ourselves too (the app may have restarted the video for
       // someone else already, and kept our old connection).
       if (mode === 'mjpeg' || !answer.reset) start();
       lastChangeAt = Date.now();
       blackChecks = 0;
     } else if (Date.now() - lastReportAt >= REPORT_MS) {
-      report({ id: viewerId, seq: lastSeq, frozenMs, black: false, mode, readable: markerSeen });
+      report({ id: viewerId, seq: lastSeq, frozenMs, black: false, mode, readable: markerSeen, frames: decodedFrames() !== null });
     }
   }, CHECK_MS);
 

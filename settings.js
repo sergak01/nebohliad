@@ -40,6 +40,10 @@ const DEFAULTS = {
   // Compare the running code with the newest commit on GitHub (one public API
   // request on start and every 6 h; version-check.js).
   updateCheck: true,
+  // A release version the user chose to skip (no dot, no notification), and
+  // the last one a Windows notification was shown for.
+  updateSkip: null,
+  updateNotified: null,
   // Quiet hours: silent notifications, no vibration or sound on viewers,
   // except an air alert at the primary location (alerts.js quietNow).
   quiet: { enabled: false, from: '23:00', to: '07:00' },
@@ -78,6 +82,7 @@ function loadSettings(siteIds) {
   if (!Array.isArray(settings.locations)) settings.locations = [];
   if (!['off', 'stream', 'always'].includes(settings.follow)) settings.follow = DEFAULTS.follow;
   if (typeof settings.updateCheck !== 'boolean') settings.updateCheck = DEFAULTS.updateCheck;
+  for (const key of ['updateSkip', 'updateNotified']) if (typeof settings[key] !== 'string') settings[key] = null;
   const time = /^([01]\d|2[0-3]):[0-5]\d$/;
   const q = settings.quiet;
   settings.quiet = {

@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="theme.css" />
     <link rel="stylesheet" href="controls.css" />
     <style>
+      .update-notes { white-space: pre-line; max-height: 9em; overflow: auto; margin-top: 4px; }
       html, body { height: 100%; overflow: hidden; }
       body { display: flex; background: var(--bg); }
       nav { width: 190px; flex: none; padding: 14px 10px; border-right: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 2px; }
@@ -303,9 +304,18 @@
         </div>
         <div class="card">
           <div class="row">
-            <div class="text"><span><span data-i18n="update.code"></span> <code id="update-commit"></code></span><span class="desc" id="update-status"></span></div>
+            <div class="text"><span><span id="update-channel"></span> <code id="update-commit"></code></span><span class="desc" id="update-status"></span></div>
             <a class="button bordered" id="update-changes" href="#" data-i18n="update.changes" hidden></a>
             <button class="bordered" id="update-check" data-i18n="update.check"></button>
+          </div>
+          <div class="row" id="update-release" hidden>
+            <div class="text"><strong id="update-release-title"></strong><span class="desc update-notes" id="update-release-notes"></span></div>
+            <a class="button" id="update-download" href="#" data-i18n="update.download"></a>
+            <button class="bordered" id="update-skip" data-i18n="update.skip"></button>
+          </div>
+          <div class="row" id="update-rebuild" hidden>
+            <div class="text"><span data-i18n="update.rebuild"></span><span class="desc"><code id="update-rebuild-command"></code></span></div>
+            <button class="bordered" id="update-rebuild-copy" data-i18n="update.copy"></button>
           </div>
           <div class="row">
             <div class="text"><span data-i18n="update.toggle"></span><span class="desc" data-i18n="update.toggle.desc"></span></div>

@@ -70,23 +70,46 @@ function render() {
   renderUpdate();
 }
 
-// Whether this is the newest code on GitHub (version-check.js).
+// The command that brings a local build up to date (README "Build").
+const REBUILD_COMMAND = 'git pull && npm run dist:local';
+
+// Whether a newer version exists (version-check.js): a release build against
+// the latest release, other builds against the newest commit.
 function renderUpdate() {
   const u = state.update;
+  const lang = document.documentElement.lang;
   setSwitch('update-enabled', state.updateCheck);
   const local = u?.local;
-  const date = local?.date ? ` · ${new Date(local.date).toLocaleDateString(document.documentElement.lang)}` : '';
+  const release = u?.channel === 'release';
+  const date = local?.date ? ` · ${new Date(local.date).toLocaleDateString(lang)}` : '';
+  $('update-channel').textContent = t(`update.channel.${u?.channel || 'local'}`).replace('{version}', u?.version || '');
   $('update-commit').textContent = local ? `${local.commit.slice(0, 7)}${date}${local.dirty ? ` ${t('update.dirty')}` : ''}` : '—';
-  let text = t(`update.status.${u?.status || 'unknown'}`).replace('{n}', u?.behindBy ?? '').replace('{error}', u?.error || '');
+  const statusKey = release && u?.status !== 'unknown' ? `update.release.${u?.status}` : `update.status.${u?.status || 'unknown'}`;
+  let text = t(statusKey).replace('{n}', u?.behindBy ?? '').replace('{error}', u?.error || '');
   if (u?.checkedAt && u.status !== 'checking') {
-    text += ` · ${t('update.checked').replace('{time}', new Date(u.checkedAt).toLocaleTimeString(document.documentElement.lang, { hour: '2-digit', minute: '2-digit' }))}`;
+    text += ` · ${t('update.checked').replace('{time}', new Date(u.checkedAt).toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit' }))}`;
   }
   $('update-status').textContent = text;
-  $('update-status').classList.toggle('accent', ['behind', 'diverged'].includes(u?.status));
-  const changes = ['behind', 'diverged'].includes(u?.status) && u.compareUrl;
+  $('update-status').classList.toggle('accent', Boolean(u?.attention));
+  const changes = !release && ['behind', 'diverged'].includes(u?.status) && u.compareUrl;
   $('update-changes').hidden = !changes;
   if (changes) $('update-changes').href = u.compareUrl;
   $('update-check').disabled = !state.updateCheck || u?.status === 'checking';
+
+  // A newer release: on a release build with download and skip; on other
+  // builds only as information.
+  const r = u?.newRelease ? u.release : null;
+  $('update-release').hidden = !r;
+  if (r) {
+    const published = r.date ? ` · ${new Date(r.date).toLocaleDateString(lang)}` : '';
+    $('update-release-title').textContent = `${t('update.available').replace('{version}', r.version)}${published}${u.skipped ? ` · ${t('update.skipped')}` : ''}`;
+    $('update-release-notes').textContent = r.notes || '';
+    $('update-download').href = r.url;
+    $('update-skip').hidden = !release || u.skipped;
+  }
+  // Local and development builds: rebuild from the newer code.
+  $('update-rebuild').hidden = release || !['behind', 'diverged'].includes(u?.status);
+  $('update-rebuild-command').textContent = REBUILD_COMMAND;
 }
 
 function iconButton(name, title, onClick, extraClass = '') {
@@ -504,6 +527,8 @@ for (const button of $('fps').children) button.addEventListener('click', () => s
 $('show-notice').addEventListener('click', () => overlay.send('ui:notice-open'));
 $('open-logs').addEventListener('click', () => action('open-logs'));
 $('update-check').addEventListener('click', () => action('update-check'));
+$('update-skip').addEventListener('click', () => action('update-skip'));
+$('update-rebuild-copy').addEventListener('click', () => action('copy', REBUILD_COMMAND));
 $('update-enabled').addEventListener('click', () => set('updateCheck', !state.updateCheck));
 $('stream-enabled').addEventListener('click', () => set('streamEnabled', !state.stream.enabled));
 for (const [id, key] of [['stream-area', 'streamArea'], ['stream-layers', 'streamLayers'], ['stream-quality', 'streamQuality']]) {

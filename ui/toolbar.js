@@ -41,7 +41,7 @@ function render() {
     $('site-notice').title = [t('toolbar.siteNotice.title'), '', ...notices.map(label), ...(hint.length ? ['', ...hint] : [])].join('\n');
     $('site-notice').classList.toggle('actionable', hint.length > 0);
   }
-  const updateReady =['behind', 'diverged'].includes(state.update?.status);
+  const updateReady = Boolean(state.update?.attention);
   $('menu').classList.toggle('has-update', updateReady);
   $('menu').title = updateReady ? `${t('toolbar.menu.title')} · ${t('update.badge')}` : t('toolbar.menu.title');
   $('home').title = t(state.hasPrimary ? 'toolbar.home.title' : 'toolbar.home.none');

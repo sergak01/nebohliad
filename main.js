@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, BaseWindow, WebContentsView, Menu, clipboard, globalShortcut, ipcMain, nativeTheme, powerMonitor, shell, webContents } = require('electron');
+const { app, BaseWindow, WebContentsView, Menu, Notification, clipboard, globalShortcut, ipcMain, nativeTheme, powerMonitor, shell, webContents } = require('electron');
 const { loadSettings, saveSettings, LANGS, THEMES, FPS_LIMITS } = require('./settings');
 const { setupSearch } = require('./search-window');
 const { setupPip } = require('./pip-window');
@@ -260,6 +260,21 @@ const NOTICE_TEXT = {
   uk: { stale: (m) => `дані не оновлюються ${m} хв`, challenge: 'просить пройти перевірку Cloudflare' },
   en: { stale: (m) => `no new data for ${m} min`, challenge: 'asks for a Cloudflare check' },
 };
+
+// A newer release (version-check.js, release builds only, once per version).
+const UPDATE_TEXT = {
+  uk: { title: (v) => `Доступний Небогляд ${v}`, body: 'Натисніть, щоб відкрити «Про застосунок» і завантажити.' },
+  en: { title: (v) => `Nebohliad ${v} is available`, body: 'Click to open "About" and download it.' },
+};
+
+function notifyUpdate(version) {
+  log.info('app', 'newer release', { version });
+  if (!Notification.isSupported()) return;
+  const s = UPDATE_TEXT[settings.lang] || UPDATE_TEXT.uk;
+  const notification = new Notification({ title: s.title(version), body: s.body });
+  notification.on('click', () => settingsWin.open('about'));
+  notification.show();
+}
 
 // [{ site, kind: 'site' | 'challenge' | 'stale', text?, minutes? }] for the
 // sites `shown` accepts.
@@ -760,6 +775,7 @@ ipcMain.on('ui:toolbar-action', (_event, { name, data }) => {
     settings: () => settingsWin.open(data),
     quit,
     'update-check': () => versionCheck.check(),
+    'update-skip': () => versionCheck.skip(),
     'open-logs': () => shell.openPath(log.dir()),
     'site-notice': handleSiteNotices,
     // Invite a device waiting on the stream's sign-in page (stream-server.js).
@@ -1025,9 +1041,9 @@ if (!app.requestSingleInstanceLock()) {
     pip = setupPip(overlay);
     locations = setupLocations(overlay);
     alerts = setupAlerts(overlay, locations);
-    versionCheck = setupVersionCheck({ settings, changed: pushState });
+    versionCheck = setupVersionCheck({ settings, changed: pushState, saveSettings: () => saveSettings(settings), notify: notifyUpdate });
     const local = versionCheck.state().local;
-    log.info('app', 'start', { version: APP_VERSION, commit: local?.commit?.slice(0, 7) || null, packaged: app.isPackaged });
+    log.info('app', 'start', { version: APP_VERSION, channel: versionCheck.channel, commit: local?.commit?.slice(0, 7) || null, packaged: app.isPackaged });
     siteHealth = setupSiteHealth(
       Object.fromEntries(SITE_IDS.map((id) => [id, { partition: SITES[id].partition, url: SITES[id].url }])),
       pushState,

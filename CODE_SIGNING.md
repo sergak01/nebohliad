@@ -42,8 +42,9 @@ operating it, with these exceptions:
   OpenFreeMap map tiles).
 - Address search sends the typed text to a Nominatim server
   (OpenStreetMap's by default), only when the user searches (presses Enter).
-- The newer-version check asks api.github.com for the latest commit of this
-  repository on start and every 6 hours; it can be turned off in the
+- The newer-version check asks api.github.com for the latest release (and,
+  for builds that are not releases, the latest commit) of this repository on
+  start and every 6 hours; it can be turned off in the
   settings (System).
 - The LAN stream, off by default, accepts connections only from the local
   network and only with a link that carries a key.

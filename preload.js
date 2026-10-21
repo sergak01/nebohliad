@@ -31,6 +31,9 @@ const SITE_RULES = {
     // when a check needs them.
     challenge: '.ts-overlay',
     overlayModals: ['#wm-details:not([hidden])'],
+    // Shown while the site has no data ("Дані тимчасово недоступні", a
+    // technical pause); its title only: the box also has a ticking clock.
+    notice: { selector: '#wm-crit', text: '.crit-title' },
     // Style layers that draw targets: icons, trails, track points, routes.
     targetLayers: '^wm-(trail|route|arrows|icons|selected)',
     // The site stores its language and switches live with one button that
@@ -131,19 +134,23 @@ const rules = SITE_RULES[location.hostname];
 if (rules) setupPageCleanup(rules);
 
 // The site's own notice about its target data (e.g. ukrainealarm: "Ми
-// оновлюємо карту. Відображення цілей буде відновлено найближчим часом.").
+// оновлюємо карту. Відображення цілей буде відновлено найближчим часом.";
+// war-monitor: "Дані тимчасово недоступні"). The rule is a selector, or
+// { selector, text } to take the text from an element inside it.
 // Map-only mode hides it, so its text goes to main, which shows it in the
 // toolbar and the stream. Checked every few seconds; only changes are sent.
 const SITE_NOTICE_MS = 3000;
 
-function watchSiteNotice(selector) {
+function watchSiteNotice(rule) {
+  const selector = typeof rule === 'string' ? rule : rule.selector;
   let last;
   const read = () => {
     const el = document.querySelector(selector);
     if (!el || el.hidden || getComputedStyle(el).display === 'none' || !el.getBoundingClientRect().height) return null;
+    const source = (rule.text && el.querySelector(rule.text)) || el;
     // textContent: map-only mode makes it visibility:hidden, and innerText
     // skips hidden text.
-    return el.textContent.replace(/\s+/g, ' ').trim() || null;
+    return source.textContent.replace(/\s+/g, ' ').trim() || null;
   };
   const check = () => {
     const text = read();

@@ -316,6 +316,11 @@ function setupStream(overlay, getPipArea) {
   function request(channel, payload, timeoutMs) {
     const id = nextRequest++;
     return new Promise((resolve, reject) => {
+      // Closed meanwhile (a video reset, the app quitting).
+      if (!compositor || compositor.isDestroyed()) {
+        reject(new Error('compositor closed'));
+        return;
+      }
       pending.set(id, { resolve, reject });
       compositor.webContents.send(channel, { id, ...payload });
       setTimeout(() => {
@@ -452,12 +457,30 @@ function setupStream(overlay, getPipArea) {
     }
   }, 30_000).unref?.();
 
-  // A viewer's report: { seq, frozenMs, black, mode }.
+  // Viewers' latest reports by their id: { at, ok }. A stuck picture on one
+  // device while another reports a fine one is that device's own trouble
+  // (e.g. a TV that cannot read its video back): it reconnects itself, and
+  // the others keep their video. Seen 2026-10-21: one such viewer restarted
+  // the video for everyone every 30 s.
+  const viewerReports = new Map();
+  const OTHERS_OK_MS = 45_000;
+
+  // A viewer's report: { id, seq, frozenMs, black, mode, readable }.
   function healthReport(report) {
-    lastReportAt = Date.now();
+    const now = Date.now();
+    lastReportAt = now;
     const frozen = Number(report?.frozenMs) >= FROZEN_MS;
-    const composing = Date.now() - lastComposedAt < 10_000;
-    if ((frozen || report?.black) && composing) {
+    const stuck = frozen || Boolean(report?.black);
+    const id = typeof report?.id === 'string' ? report.id.slice(0, 16) : null;
+    if (id) viewerReports.set(id, { at: now, ok: !stuck });
+    for (const [key, value] of viewerReports) if (now - value.at > 5 * 60_000) viewerReports.delete(key);
+    const othersOk = [...viewerReports].some(([key, value]) => key !== id && value.ok && now - value.at < OTHERS_OK_MS);
+    const composing = now - lastComposedAt < 10_000;
+    if (stuck && othersOk) {
+      log.info('stream', 'one viewer stuck while others are fine: it reconnects itself', { what: report?.black ? 'black' : 'frozen', readable: report?.readable ?? null });
+      return { reset: false };
+    }
+    if (stuck && composing) {
       // Frames are made here, but the viewer's picture stands still or is
       // black: the video path is stuck.
       const what = report?.black ? 'viewer-black' : 'viewer-frozen';

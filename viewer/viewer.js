@@ -84,7 +84,10 @@
     };
     peer.onconnectionstatechange = () => {
       if (pc !== peer) return;
-      if (peer.connectionState === 'connected') showStatus('');
+      if (peer.connectionState === 'connected') {
+        showStatus('');
+        watchdogReset();
+      }
       if (['failed', 'disconnected', 'closed'].includes(peer.connectionState)) {
         showStatus(s.lost);
         timer = setTimeout(() => mode === 'webrtc' && start(), 3000);
@@ -135,6 +138,7 @@
 
   function start() {
     stopAll();
+    watchdogReset();
     if (mode === 'webrtc') startWebRTC();
     else if (mode === 'mjpeg') startMjpeg();
     else startSnapshots();
@@ -147,12 +151,23 @@
   // the PC wakes from sleep). The app gets a report every 30 s, and at once
   // when the picture is stuck; it restarts the video if its frames are fine,
   // and this page reconnects itself as well.
+  // Some devices (TVs, phones with hardware video) cannot read video pixels
+  // back: the copy is black while the picture is fine. So the decoded-frame
+  // count is watched too, and until the marker has been read once on this
+  // connection the pixels are not trusted: no "black", and "frozen" only by
+  // the frame count. Nothing is judged in the first seconds of a connection.
   const probe = document.createElement('canvas');
   const probeCtx = probe.getContext('2d', { willReadFrequently: true });
   const CHECK_MS = 5000;
   const REPORT_MS = 30_000;
   const FROZEN_MS = 15_000;
   const BLACK_MAX = 10;
+  const GRACE_MS = 10_000;
+  // One id per page load, so the app can tell its viewers' reports apart.
+  const viewerId = Math.random().toString(36).slice(2, 10);
+  let connectedAt = Date.now();
+  let markerSeen = false;
+  let lastFrames = -1;
   let lastSeq = null;
   let lastChangeAt = Date.now();
   let blackChecks = 0;
@@ -165,6 +180,23 @@
     if (mode === 'webrtc') return pc?.connectionState === 'connected' && video.readyState >= 2 ? video : null;
     if (mode === 'mjpeg') return img.naturalWidth ? img : null;
     return null; // Snapshots change only every few seconds by design.
+  }
+
+  // Frames the browser has decoded so far (WebRTC video), or null.
+  function decodedFrames() {
+    if (mode !== 'webrtc') return null;
+    const quality = video.getVideoPlaybackQuality?.();
+    if (quality) return quality.totalVideoFrames;
+    return typeof video.webkitDecodedFrameCount === 'number' ? video.webkitDecodedFrameCount : null;
+  }
+
+  // A new connection: start judging afresh.
+  function watchdogReset() {
+    connectedAt = Date.now();
+    lastChangeAt = Date.now();
+    markerSeen = false;
+    lastFrames = -1;
+    blackChecks = 0;
   }
 
   function readFrame(source) {
@@ -225,23 +257,35 @@
       return; // Not readable right now.
     }
     if (!frame) return;
+    if (frame.seq !== null) markerSeen = true;
     if (frame.seq !== null && frame.seq !== lastSeq) {
       lastSeq = frame.seq;
       lastChangeAt = Date.now();
     }
-    blackChecks = frame.black ? blackChecks + 1 : 0;
+    // Without a readable marker, new decoded frames are what "alive" means.
+    const frames = decodedFrames();
+    if (!markerSeen && frames !== null && frames !== lastFrames) {
+      lastFrames = frames;
+      lastChangeAt = Date.now();
+    }
+    if (Date.now() - connectedAt < GRACE_MS) {
+      lastChangeAt = Date.now();
+      blackChecks = 0;
+      return;
+    }
+    blackChecks = frame.black && markerSeen ? blackChecks + 1 : 0;
     const frozenMs = Date.now() - lastChangeAt;
     const stuck = frozenMs >= FROZEN_MS || blackChecks >= 2;
     if (stuck && Date.now() - lastFixAt > 60_000) {
       lastFixAt = Date.now();
-      const answer = await report({ seq: lastSeq, frozenMs, black: blackChecks >= 2, mode });
+      const answer = await report({ id: viewerId, seq: lastSeq, frozenMs, black: blackChecks >= 2, mode, readable: markerSeen });
       // Reconnect ourselves too (the app may have restarted the video for
       // someone else already, and kept our old connection).
       if (mode === 'mjpeg' || !answer.reset) start();
       lastChangeAt = Date.now();
       blackChecks = 0;
     } else if (Date.now() - lastReportAt >= REPORT_MS) {
-      report({ seq: lastSeq, frozenMs, black: false, mode });
+      report({ id: viewerId, seq: lastSeq, frozenMs, black: false, mode, readable: markerSeen });
     }
   }, CHECK_MS);
 

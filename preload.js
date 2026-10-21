@@ -411,6 +411,30 @@ function installMapSync(sendView, sendReady) {
     });
   }
 
+  // A custom layer draws through its implementation's render (and
+  // prerender); muted, those do nothing until it is unmuted. Returns whether
+  // anything changed.
+  const mutedLayers = new WeakMap(); // implementation -> { render, prerender }
+
+  function muteCustomLayer(layer, mute) {
+    const impl = layer.implementation;
+    if (!impl) return false;
+    const saved = mutedLayers.get(impl);
+    if (mute && !saved) {
+      mutedLayers.set(impl, { render: impl.render, prerender: impl.prerender });
+      impl.render = () => {};
+      if (impl.prerender) impl.prerender = () => {};
+      return true;
+    }
+    if (!mute && saved) {
+      impl.render = saved.render;
+      if (saved.prerender) impl.prerender = saved.prerender;
+      mutedLayers.delete(impl);
+      return true;
+    }
+    return false;
+  }
+
   function applyLayerFilter() {
     const map = mainMap();
     // Not isStyleLoaded(): it stays false while sources update, which on a
@@ -422,10 +446,17 @@ function installMapSync(sendView, sendReady) {
       return; // Style not parsed yet; 'styledata' will call again.
     }
     for (const id of ids) {
-      // One odd layer must not stop the rest. Custom layers (ukrainealarm's
-      // alert regions) throw from setLayoutProperty when shown again; their
-      // `visibility` field is what MapLibre's renderer checks, so set it.
       const layer = map.getLayer(id);
+      // Custom layers (ukrainealarm's alert regions) are muted instead: they
+      // throw from setLayoutProperty when shown again, and in MapLibre 5.15
+      // setting their `visibility` field no longer hides them (isHidden()
+      // stays false; found 2026-10-21, the regions covered the base page).
+      if (layer?.type === 'custom') {
+        const keep = !keepPattern || keepPattern.test(id);
+        if (muteCustomLayer(layer, !keep)) map.triggerRepaint();
+        continue;
+      }
+      // One odd layer must not stop the rest.
       const current = layer?.visibility ?? map.getLayoutProperty(id, 'visibility') ?? 'visible';
       if (!ownVisibility.has(id)) ownVisibility.set(id, current);
       const wanted = !keepPattern || keepPattern.test(id) ? ownVisibility.get(id) : 'none';

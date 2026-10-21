@@ -478,7 +478,10 @@ function setupStream(overlay, getPipArea) {
     const composing = now - lastComposedAt < 10_000;
     // Who complains and what it can see: which device keeps doing it.
     const who = { viewer: id, readable: report?.readable ?? null, frames: report?.frames ?? null, frozenS: Math.round((Number(report?.frozenMs) || 0) / 1000) };
-    if (stuck && othersOk) {
+    // Without a readable marker the report is weak evidence: with other
+    // viewers watching, only this one reconnects.
+    const weak = !report?.readable && webrtcPeers > 1;
+    if (stuck && (othersOk || weak)) {
       log.info('stream', 'one viewer stuck while others are fine: it reconnects itself', { what: report?.black ? 'black' : 'frozen', ...who });
       return { reset: false };
     }

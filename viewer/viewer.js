@@ -167,6 +167,7 @@
   const viewerId = Math.random().toString(36).slice(2, 10);
   let connectedAt = Date.now();
   let markerSeen = false;
+  let framesMoved = false; // The decoded-frame count changed at least once.
   let lastFrames = -1;
   let lastSeq = null;
   let lastChangeAt = Date.now();
@@ -195,6 +196,7 @@
     connectedAt = Date.now();
     lastChangeAt = Date.now();
     markerSeen = false;
+    framesMoved = false;
     lastFrames = -1;
     blackChecks = 0;
   }
@@ -262,13 +264,14 @@
       lastSeq = frame.seq;
       lastChangeAt = Date.now();
     }
-    // Without a readable marker, new decoded frames are what "alive" means;
-    // with neither (an old TV browser), there is nothing to judge by.
+    // Without a readable marker, new decoded frames are what "alive" means.
+    // A count that never moved since the connection started is not trusted
+    // either (a TV browser reported 0 all along while showing the video):
+    // with neither sign there is nothing to judge by.
     const frames = decodedFrames();
-    if (!markerSeen && (frames === null || frames !== lastFrames)) {
-      lastFrames = frames;
-      lastChangeAt = Date.now();
-    }
+    if (frames !== null && lastFrames !== -1 && frames !== lastFrames) framesMoved = true;
+    if (!markerSeen && (!framesMoved || frames !== lastFrames)) lastChangeAt = Date.now();
+    lastFrames = frames;
     if (Date.now() - connectedAt < GRACE_MS) {
       lastChangeAt = Date.now();
       blackChecks = 0;

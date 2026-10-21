@@ -198,6 +198,12 @@ if (rules?.challenge) watchChallenge(rules.challenge);
 // `this._mapId`, so a one-shot setter on Object.prototype catches every map
 // instance, whether maplibre-gl is a global or bundled into the page.
 function installMapSync(sendView, sendReady) {
+  // Our marks on the map (location rings and labels, the search pin) sit
+  // just above the map canvas and below anything else the site draws over
+  // the map: its cards, dialogs and notices (war-monitor's data box is
+  // z-index 5; at 999 our ring was drawn on top of it).
+  const LOCATIONS_Z = 1;
+  const PIN_Z = 2;
   const USER_MOVE_MS = 1500; // Moves this soon after input are the user's (incl. inertia).
   const maps = [];
   let applying = false;
@@ -381,7 +387,7 @@ function installMapSync(sendView, sendReady) {
     pinEl = document.createElement('div');
     pinEl.style.cssText = [
       'position:absolute', 'left:0', 'top:0', 'width:14px', 'height:14px', 'margin:-10px 0 0 -10px',
-      'border-radius:50%', 'background:#ff2d55', 'border:3px solid #fff', 'pointer-events:none', 'z-index:1000',
+      'border-radius:50%', 'background:#ff2d55', 'border:3px solid #fff', 'pointer-events:none', `z-index:${PIN_Z}`,
       'box-shadow:0 0 0 2px rgba(0,0,0,.7),0 0 14px 5px rgba(255,45,85,.75)',
     ].join(';');
     map.getContainer().appendChild(pinEl);
@@ -490,7 +496,7 @@ function installMapSync(sendView, sendReady) {
     const map = mainMap();
     if (!locationsData || !map) return;
     locationsEl = document.createElement('div');
-    locationsEl.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:999';
+    locationsEl.style.cssText = `position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:${LOCATIONS_Z}`;
     for (const loc of locationsData.locations) {
       const item = document.createElement('div');
       item.style.cssText = 'position:absolute;left:0;top:0';

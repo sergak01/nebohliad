@@ -1,5 +1,15 @@
 # TODO
 
+## Top layer over the base page's interface (noted 2026-10-21, not critical)
+
+With the base page's interface shown (HUD on), the top layer's window covers
+the whole map area, so its targets and heat trails are drawn over the base
+site's header, panels and cards. A z-index cannot fix it (separate windows).
+Idea: the base page reports the rectangles of its opaque interface over the
+map (header bar, open cards and dialogs, its data notice) every second or on
+change; the top page cuts them out of its map with a CSS mask / clip-path
+(evenodd path of the holes). Map-only mode does not need it.
+
 ## Releases for others (decided 2026-10-20)
 
 Now: unsigned installer + portable on GitHub Releases (tag v* → draft

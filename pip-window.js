@@ -110,9 +110,10 @@ function setupPip(overlay) {
       if (pip && !pip.isDestroyed()) {
         pip.webContents.send('ui:pip-frame', {
           bottom: bottomImage.toJPEG(85),
-          // PNG keeps the transparency of the targets-only top layer.
+          // PNG keeps the top layer's transparency: the page itself draws
+          // its map at the user's opacity (preload.js topLayerCss).
           top: topImage ? topImage.toPNG() : null,
-          opacity: overlay.topOpacity,
+          opacity: 1,
         });
       }
     } catch (error) {

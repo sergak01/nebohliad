@@ -823,13 +823,30 @@ const TRANSPARENT_CSS = `
   html, body, ${MAIN_MAP}, ${MAIN_MAP} .maplibregl-canvas-container { background: transparent !important; }
 `;
 
+// Top layer (overlay page): only its map is see-through, at the user's
+// opacity, so the base map shows under it; the site's panels, cards and the
+// Cloudflare check stay opaque (the whole window used to be translucent).
+// The page and every element around the map lose their backgrounds.
+function topLayerCss(opacity) {
+  return `
+  html, body, :has(${MAIN_MAP}), ${MAIN_MAP}, ${MAIN_MAP} .maplibregl-canvas-container { background: transparent !important; }
+  ${MAIN_MAP} { opacity: ${opacity} !important; }
+`;
+}
+
 const cssKeys = {};
+const cssTexts = {};
 
 function toggleCss(name, css, enabled) {
-  if (enabled && !cssKeys[name]) cssKeys[name] = webFrame.insertCSS(css);
+  if (enabled && cssKeys[name] && cssTexts[name] !== css) toggleCss(name, null, false);
+  if (enabled && !cssKeys[name]) {
+    cssKeys[name] = webFrame.insertCSS(css);
+    cssTexts[name] = css;
+  }
   if (!enabled && cssKeys[name]) {
     webFrame.removeInsertedCSS(cssKeys[name]);
     delete cssKeys[name];
+    delete cssTexts[name];
   }
 }
 
@@ -870,6 +887,7 @@ function setPageMode(mode, live) {
     () => toggleCss('modals', modalsCss(rules?.modals), Boolean(mode.isBase && mode.hudHidden && rules?.modals?.length)),
     () => toggleCss('overlayModals', modalsCss(rules?.overlayModals), Boolean(!mode.isBase && (mode.hudHidden || targetsOnly) && rules?.overlayModals?.length)),
     () => toggleCss('transparent', TRANSPARENT_CSS, targetsOnly),
+    () => toggleCss('topLayer', topLayerCss(Number(mode.opacity) || 1), mode.isBase === false),
     () => mapSync.setLayerFilter(targetsOnly ? rules.targetLayers : null),
     () => mapSync.setAttribution(mode.attribution || null),
     () => mode.dismissSafety && rules && enableSafetyDismissal(rules),

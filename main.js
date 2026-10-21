@@ -197,7 +197,6 @@ function placePages() {
   layout();
   sendPageModes();
   locations?.redraw();
-  overlayWindow.setOpacity(currentOpacity());
   applyClickThrough();
 }
 
@@ -380,6 +379,9 @@ function pageMode(contents) {
     lang: settings.lang,
     theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
     fps: settings.fpsLimit,
+    // The top layer's opacity is applied by the page to its map only, so the
+    // site's panels, cards and the Cloudflare check stay fully opaque.
+    opacity: isBase ? 1 : currentOpacity(),
   };
 }
 
@@ -567,7 +569,6 @@ function setBase(siteId) {
 function setTargetsOnly(enabled) {
   settings.targetsOnly = enabled;
   sendPageModes();
-  overlayWindow.setOpacity(currentOpacity());
   stateChanged();
 }
 
@@ -581,7 +582,7 @@ function setOpacity(value) {
   const mode = settings.targetsOnly ? 'targets' : 'full';
   const clamped = Math.min(OPACITY_MAX, Math.max(OPACITY_MIN, value));
   settings.opacity[mode] = Math.round(clamped * 10) / 10;
-  overlayWindow.setOpacity(settings.opacity[mode]);
+  sendPageModes();
   stateChanged();
 }
 
@@ -670,7 +671,7 @@ function endWake(hideAgain) {
   clearTimeout(wake.timer);
   for (const w of wake.windows) {
     if (hideAgain) w.hide();
-    w.setOpacity(w === overlayWindow ? currentOpacity() : 1);
+    w.setOpacity(1);
   }
   wake = null;
 }
@@ -930,9 +931,6 @@ const overlay = {
   },
   get topShown() {
     return topShown;
-  },
-  get topOpacity() {
-    return currentOpacity();
   },
   get pin() {
     return pin;

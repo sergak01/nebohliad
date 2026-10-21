@@ -527,10 +527,11 @@ function setupStream(overlay, getPipArea) {
         banner: overlay.alertBanner(),
         notice: overlay.noticeBanner(),
         bottom: bottom ? bottom.toJPEG(90) : null,
-        // PNG keeps the transparency of the targets-only top layer.
+        // PNG keeps the top layer's transparency: the page itself draws its
+        // map at the user's opacity (preload.js topLayerCss), so it is
+        // blended as it is (alone: on a dark background).
         top: top ? top.toPNG() : null,
-        // Alone, the top layer is drawn fully opaque on a dark background.
-        opacity: layers === 'top' ? 1 : overlay.topOpacity,
+        opacity: 1,
         maxWidth: q.maxWidth,
         quality: q.jpeg,
         seq: frameSeq,

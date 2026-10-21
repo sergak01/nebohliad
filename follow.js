@@ -11,15 +11,18 @@
 // to the view it had before. settings.follow: 'off' | 'stream' (only while
 // someone watches the LAN stream) | 'always'.
 //
-// If the user moves the map while it follows, they have taken over: the map
-// is left where they put it, and is not moved back at the end either.
+// If the user moves either map while it follows (the page marks moves that
+// come from input, see preload.js), or goes somewhere with search, home or a
+// location, they have taken over: the map is left where they put it, and is
+// not moved back at the end either. Moves made by code never count: a time
+// window after our own commands was not enough, since in a hidden window the
+// map's animation runs at ~1 frame/s and its last moves came late.
 
 const { distanceKm } = require('./alerts');
 const log = require('./logger');
 
 const MODES = ['off', 'stream', 'always'];
 const MARGIN = 1.1; // A little room around the circle.
-const OWN_MOVE_MS = 2500; // Our fitBounds animation and its sync settle.
 const RECENTER_SHARE = 0.15; // Re-center when the target moved this share of the view.
 const CLOSEST_SHARE = 0.2; // Closer than this share of the radius: the closest zoom.
 const CLOSEST_VIEW_KM = 0.5; // Rough half-width of the view at the closest zoom.
@@ -48,16 +51,12 @@ function setupFollow(overlay) {
   let following = false;
   let savedView = null; // The view before following started.
   let tookOver = false;
-  let ownMoveUntil = 0;
   let last = null; // { location, t, distance } of the last view we set.
 
   const mode = () => (MODES.includes(settings.follow) ? settings.follow : 'off');
   const active = () => mode() === 'always' || (mode() === 'stream' && overlay.streamWatched());
 
-  function move(command) {
-    ownMoveUntil = Date.now() + OWN_MOVE_MS;
-    overlay.mapCommand(command);
-  }
+  const move = (command) => overlay.mapCommand(command);
 
   // hits: alerts.js nearby list, nearest first: [{ target, location, km, key }].
   function update(hits) {
@@ -108,19 +107,13 @@ function setupFollow(overlay) {
     last = null;
   }
 
-  // Every view the base map reports: a move we did not make means the user
-  // took over.
-  function viewChanged() {
-    if (following && !tookOver && Date.now() > ownMoveUntil) tookOver = true;
+  function userMoved() {
+    if (following && !tookOver) tookOver = true;
   }
 
   return {
     update,
-    viewChanged,
-    // The app moves the map itself (restoring a view): not the user.
-    expectMove: () => {
-      ownMoveUntil = Date.now() + OWN_MOVE_MS;
-    },
+    userMoved,
     // While following, the saved map view is the one from before.
     isFollowing: () => following,
     savedView: () => savedView,

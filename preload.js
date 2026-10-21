@@ -187,6 +187,7 @@ if (rules?.challenge) watchChallenge(rules.challenge);
 // `this._mapId`, so a one-shot setter on Object.prototype catches every map
 // instance, whether maplibre-gl is a global or bundled into the page.
 function installMapSync(sendView, sendReady) {
+  const USER_MOVE_MS = 1500; // Moves this soon after input are the user's (incl. inertia).
   const maps = [];
   let applying = false;
 
@@ -264,11 +265,27 @@ function installMapSync(sendView, sendReady) {
     renderAttribution();
     map.on('styledata', scheduleLayerFilter);
     map.on('load', scheduleLayerFilter);
+    // `user`: the move came right after the user's input on this map (a
+    // drag, wheel, touch, double-click, keys, MapLibre's zoom buttons); moves
+    // made by code (our commands, the site's own) do not. MapLibre's own
+    // originalEvent is not enough: wheel-zoom animation frames carry none.
+    let inputAt = 0;
+    const markInput = () => {
+      inputAt = Date.now();
+    };
+    const container = map.getContainer();
+    const capture = { capture: true, passive: true };
+    container.addEventListener('wheel', markInput, capture);
+    container.addEventListener('pointermove', (event) => event.buttons && markInput(), capture);
+    container.addEventListener('touchmove', markInput, capture);
+    container.addEventListener('dblclick', markInput, capture);
+    container.addEventListener('keydown', markInput, capture);
+    container.addEventListener('click', (event) => event.target?.closest?.('.maplibregl-ctrl') && markInput(), capture);
     map.on('move', () => {
       if (map !== mainMap()) return;
       placePin();
       placeLocations();
-      if (!applying) sendView(viewOf(map));
+      if (!applying) sendView({ ...viewOf(map), user: Date.now() - inputAt < USER_MOVE_MS });
     });
     map.on('resize', () => {
       markMainMap();

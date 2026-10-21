@@ -227,11 +227,9 @@ ipcMain.on('map-view', (event, view) => {
   const site = siteOf(event.sender);
   if (site) lastViews[site] = view;
   otherPage(event.sender)?.send('set-map-view', view);
-  if (site && site === settings?.base) {
-    // Echoes (re-sent views) and bounces are not moves by the user.
-    if (!view.echo && !view.bounce) follow?.viewChanged();
-    if (startupViewSet) scheduleViewSave();
-  }
+  // The user moved either map (the top one with "interact" on).
+  if (site && view.user) follow?.userMoved();
+  if (site && site === settings?.base && startupViewSet) scheduleViewSave();
 });
 
 // The base map's view is kept in settings.mapView and restored at start-up.
@@ -350,7 +348,6 @@ ipcMain.on('map-ready', (event) => {
 
 // Our own move of the base map to a saved view (not a move by the user).
 function jumpTo(view) {
-  follow?.expectMove();
   basePage().send('map-command', { jump: true, center: view.center, zoom: view.zoom, bearing: view.bearing || 0, pitch: view.pitch || 0 });
 }
 
@@ -390,6 +387,7 @@ ipcMain.on('ui:open-external', (_event, url) => {
 // Center the maps on a place ({ center, zoom } or { center, bbox }) and pin it.
 // Only the base map is moved; the sync carries the overlay map along.
 function goTo(place) {
+  follow?.userMoved();
   restoreMain();
   const command = place.bbox ? { bbox: place.bbox } : { center: place.center, zoom: place.zoom };
   basePage().send('map-command', command);
@@ -403,6 +401,7 @@ function setPin(value) {
 
 // Move the maps without a pin: { bbox } or { center, zoom }.
 function showView(view) {
+  follow?.userMoved();
   restoreMain();
   basePage().send('map-command', view);
 }
@@ -641,8 +640,6 @@ function wakeHiddenWindows() {
   if (wake) return true;
   const windows = [mainWindow, overlayWindow].filter((w) => !w.isVisible());
   if (!windows.length) return false;
-  // Showing a window can make the map report a view: not the user's move.
-  follow?.expectMove();
   for (const w of windows) {
     w.setOpacity(0);
     w.showInactive();
@@ -656,7 +653,6 @@ function wakeHiddenWindows() {
 function endWake(hideAgain) {
   if (!wake) return;
   clearTimeout(wake.timer);
-  if (hideAgain) follow?.expectMove();
   for (const w of wake.windows) {
     if (hideAgain) w.hide();
     w.setOpacity(w === overlayWindow ? currentOpacity() : 1);

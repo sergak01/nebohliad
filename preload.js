@@ -65,7 +65,11 @@ const SITE_RULES = {
     // modal: while open the rest of the page is inert, so map-only mode must
     // not hide it. Not `.popup`: `.popup.region` is a permanent full-page
     // container, and shown above the map it takes every click.
-    modals: ['dialog[open]'],
+    // #detail-target-tooltip: the hover card of a target (appended to <body>,
+    // so map-only mode would hide it); on the top page it shows with
+    // "interact" on.
+    modals: ['dialog[open]', '#detail-target-tooltip:not([hidden])'],
+    overlayModals: ['#detail-target-tooltip:not([hidden])'],
     // Shown while the site's target data is paused (map maintenance).
     notice: '#public-target-data-status',
     // Targets are DOM markers inside the map container; no style layer is a
@@ -499,9 +503,9 @@ function installMapSync(sendView, sendReady) {
     const t = iconType.toLowerCase();
     if (/ballist/.test(t)) return 'ballistic';
     if (/kab|bomb|guided/.test(t)) return 'kab';
-    if (/cruise|missile|rocket|kalibr/.test(t)) return 'cruise';
+    if (/cruise|missile|rocket|kalibr|banderol/.test(t)) return 'cruise';
     if (/jet|reactive/.test(t)) return 'jet';
-    if (/shahed|drone|uav|geran|gerbera/.test(t)) return 'uav';
+    if (/shahed|drone|uav|geran|gerbera|zala|orlan|supercam|lancet/.test(t)) return 'uav';
     if (/aviation|plane|aircraft|tactical/.test(t)) return 'aviation';
     return 'unknown';
   }

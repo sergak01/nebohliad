@@ -857,6 +857,7 @@ const frameLimit = contextBridge.executeInMainWorld({ func: installFrameLimit })
 function installSocketWatch() {
   const NativeWebSocket = window.WebSocket;
   const FAILURES_KEPT_MS = 120_000;
+  const DATA_MESSAGE_MIN = 200; // bytes
   let lastMessageAt = 0;
   let open = 0;
   const failures = [];
@@ -873,8 +874,13 @@ function installSocketWatch() {
         else failures.push(Date.now());
         opened = false;
       });
-      this.addEventListener('message', () => {
-        lastMessageAt = Date.now();
+      // Only messages big enough to carry data count (ukrainealarm's map
+      // updates are ~5 KB every ~10 s); a socket that only keeps pinging
+      // while its data stopped must not look alive. Only the size is used.
+      this.addEventListener('message', (event) => {
+        const data = event.data;
+        const size = typeof data === 'string' ? data.length : data?.byteLength ?? data?.size ?? 0;
+        if (size >= DATA_MESSAGE_MIN) lastMessageAt = Date.now();
       });
     }
   }
@@ -890,6 +896,24 @@ function installSocketWatch() {
 }
 
 const socketWatch = contextBridge.executeInMainWorld({ func: installSocketWatch });
+
+// Diagnostics for main's log: the page's own visibility (ukrainealarm stops
+// its socket and its polling while document.hidden), and on ukrainealarm how
+// many targets the map shows next to the threat count the site displays.
+// Counts only.
+document.addEventListener('visibilitychange', () => ipcRenderer.send('page-visibility', document.hidden));
+if (location.hostname === 'map.ukrainealarm.com') {
+  let lastTargetsReport = '';
+  setInterval(() => {
+    const markers = document.querySelectorAll('[data-nebohliad-main] .detailSatelliteTarget').length;
+    const label = [...document.querySelectorAll('body *')].find((e) => e.children.length === 0 && /^Загрози:?$/.test(e.textContent.trim()));
+    const threats = Number((label?.parentElement?.textContent.match(/\d+/) || [])[0]);
+    const report = JSON.stringify({ markers, threats: Number.isFinite(threats) ? threats : null });
+    if (report === lastTargetsReport) return;
+    lastTargetsReport = report;
+    ipcRenderer.send('page-targets', JSON.parse(report));
+  }, 30_000);
+}
 
 // Tells main (site-health.js) every 15 s whether data arrived on the page's
 // sockets, and their state when it changed.

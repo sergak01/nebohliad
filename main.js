@@ -652,6 +652,7 @@ function reloadPages(reason = 'by the user') {
   log.info('maps', 'reload', { reason: typeof reason === 'string' ? reason : 'by the user' });
   for (const id of SITE_IDS) siteHealth?.reset(id);
   keepViewAcrossReload();
+  for (const id of SITE_IDS) ourReloadAt[id] = Date.now();
   for (const view of Object.values(pages)) view.webContents.reload();
 }
 
@@ -853,6 +854,31 @@ const PAGE_FIX_EVERY_MS = 5 * 60_000;
 
 // Per site: reload its page (rate-limited, keeps the base map's view).
 const pageFixers = {};
+// Per site: when we last reloaded its page (to tell the site's own reloads).
+const ourReloadAt = {};
+
+// Diagnostics from the pages (preload.js), logged on change only.
+ipcMain.on('page-visibility', (event, hidden) => {
+  const site = siteOf(event.sender);
+  if (site) log[hidden ? 'warn' : 'info']('page', hidden ? 'the page thinks it is hidden' : 'the page is visible again', { site });
+});
+
+// ukrainealarm: targets on the map vs the threat count the site shows.
+const markerWatch = {};
+ipcMain.on('page-targets', (event, report) => {
+  const site = siteOf(event.sender);
+  if (!site || !report) return;
+  const w = (markerWatch[site] ||= { zeroSince: 0 });
+  const markers = Number(report.markers) || 0;
+  const threats = Number(report.threats) || 0;
+  if (markers === 0 && threats > 0 && !w.zeroSince) {
+    w.zeroSince = Date.now();
+    log.warn('page', 'no targets on the map while the site counts threats', { site, threats });
+  } else if (markers > 0 && w.zeroSince) {
+    log.info('page', 'targets on the map again', { site, markers, afterMin: Math.round((Date.now() - w.zeroSince) / 60_000) });
+    w.zeroSince = 0;
+  }
+});
 
 function watchPage(siteId, contents) {
   let hungTimer = null;
@@ -870,10 +896,20 @@ function watchPage(siteId, contents) {
       if (contents.isDestroyed()) return;
       // The base map comes back with the site's own view; keep ours.
       if (siteId === settings.base) keepViewAcrossReload();
+      ourReloadAt[siteId] = Date.now();
       contents.reload();
     }, wait);
   };
   pageFixers[siteId] = fix;
+  // A page that loads again without our asking (the site reloading itself,
+  // e.g. ukrainealarm when its realtime token cannot be renewed) is logged:
+  // in a window hidden in the tray such a page may come back without frames
+  // or with document.hidden.
+  contents.on('did-start-navigation', (details) => {
+    if (!details.isMainFrame || details.isSameDocument) return;
+    if (Date.now() - (ourReloadAt[siteId] || 0) < 15_000 || !contents.getURL()) return;
+    log.warn('page', 'the page loaded again by itself', { site: siteId });
+  });
   contents.on('render-process-gone', (_event, details) => {
     if (details.reason === 'clean-exit' || quitting) return;
     fix(`renderer gone (${details.reason})`);

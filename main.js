@@ -860,7 +860,8 @@ const ourReloadAt = {};
 // Diagnostics from the pages (preload.js), logged on change only.
 ipcMain.on('page-visibility', (event, hidden) => {
   const site = siteOf(event.sender);
-  if (site) log[hidden ? 'warn' : 'info']('page', hidden ? 'the page thinks it is hidden' : 'the page is visible again', { site });
+  // The real state; the site itself is always told it is visible.
+  if (site) log.info('page', hidden ? 'the page is hidden (the site is told it is visible)' : 'the page is visible again', { site });
 });
 
 // ukrainealarm: targets on the map vs the threat count the site shows.
@@ -909,6 +910,14 @@ function watchPage(siteId, contents) {
     if (!details.isMainFrame || details.isSameDocument) return;
     if (Date.now() - (ourReloadAt[siteId] || 0) < 15_000 || !contents.getURL()) return;
     log.warn('page', 'the page loaded again by itself', { site: siteId });
+    // A page loaded in a hidden window gets no frames until the window is
+    // shown once (seen every 2 h with ukrainealarm): wake the windows
+    // instead of waiting for the stream's capture to stall.
+    contents.once('did-stop-loading', () => {
+      setTimeout(() => {
+        if (!mainWindow.isVisible() && wakeHiddenWindows()) log.info('page', 'woke the windows after the page reloaded itself', { site: siteId });
+      }, 3000);
+    });
   });
   contents.on('render-process-gone', (_event, details) => {
     if (details.reason === 'clean-exit' || quitting) return;

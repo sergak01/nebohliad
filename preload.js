@@ -849,6 +849,27 @@ function installFrameLimit() {
 
 const frameLimit = contextBridge.executeInMainWorld({ func: installFrameLimit });
 
+// Executed in the page's main world before its scripts: the map pages always
+// see themselves as visible. They must stay live while the windows sit in
+// the tray, but a page loaded in a hidden window starts as hidden, and the
+// sites stop their data then (ukrainealarm closes its socket and stops its
+// polling; war-monitor pauses). ukrainealarm reloads itself every 2 h; in the
+// tray the reloaded page stayed hidden and showed no new targets until the
+// user reloaded it (found 2026-10-22). The real state stays readable from
+// this preload's own world.
+function installAlwaysVisible() {
+  const define = (name, get) => Object.defineProperty(Document.prototype, name, { get, configurable: true });
+  define('hidden', () => false);
+  define('visibilityState', () => 'visible');
+  define('webkitHidden', () => false);
+  define('webkitVisibilityState', () => 'visible');
+  // Captured first at the window, so no page listener hears the change.
+  window.addEventListener('visibilitychange', (event) => event.stopImmediatePropagation(), true);
+  window.addEventListener('webkitvisibilitychange', (event) => event.stopImmediatePropagation(), true);
+}
+
+contextBridge.executeInMainWorld({ func: installAlwaysVisible });
+
 // Executed in the page's main world before its scripts: notes when a message
 // last arrived on any of the page's WebSockets (ukrainealarm's targets come
 // over one), how many are open, and how many attempts failed in the last
@@ -901,7 +922,15 @@ const socketWatch = contextBridge.executeInMainWorld({ func: installSocketWatch 
 // its socket and its polling while document.hidden), and on ukrainealarm how
 // many targets the map shows next to the threat count the site displays.
 // Counts only.
-document.addEventListener('visibilitychange', () => ipcRenderer.send('page-visibility', document.hidden));
+// The page itself is told it is always visible (installAlwaysVisible); this
+// world still reads the real state, polled because the event is stopped.
+let realHidden = document.hidden;
+if (realHidden) ipcRenderer.send('page-visibility', true);
+setInterval(() => {
+  if (document.hidden === realHidden) return;
+  realHidden = document.hidden;
+  ipcRenderer.send('page-visibility', realHidden);
+}, 5000);
 if (location.hostname === 'map.ukrainealarm.com') {
   let lastTargetsReport = '';
   setInterval(() => {

@@ -132,10 +132,15 @@ overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, a
       track.requestFrame();
       framesRequested++;
     }
+    // JPEG as base64 (main decodes it). Synchronous toDataURL, not toBlob:
+    // Chromium encodes toBlob (and OffscreenCanvas.convertToBlob) in idle
+    // time, which this hidden window hardly gets, so every 3rd–4th frame
+    // waited ~1 s for the fallback timeout (measured 2026-10-23: toBlob
+    // ~35 ms or ~950 ms, toDataURL 28–35 ms).
     let jpeg = null;
     if (needJpeg) {
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-      jpeg = new Uint8Array(await blob.arrayBuffer());
+      const url = canvas.toDataURL('image/jpeg', quality);
+      jpeg = url.slice(url.indexOf(',') + 1);
     }
     overlay.send('ui:composed', { id, jpeg });
   } catch (error) {

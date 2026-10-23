@@ -34,7 +34,8 @@ const DEFAULTS = {
   // LAN stream (stream-server.js). token: in the viewer link; regenerated
   // with "new link". area: full | pip; layers: both | base | top;
   // quality: low | standard | high.
-  stream: { enabled: false, port: 47800, token: '', area: 'full', layers: 'both', quality: 'standard' },
+  // fps: 'auto' (the quality's) | '1' | '2' | '3' | '5' | '10'.
+  stream: { enabled: false, port: 47800, token: '', area: 'full', layers: 'both', quality: 'standard', fps: 'auto' },
   // Base map view, restored at start-up: { center, zoom, bearing, pitch }.
   mapView: null,
   // Center on a target near a location: 'off' | 'stream' (while someone
@@ -81,6 +82,7 @@ function loadSettings(siteIds) {
   if (!['full', 'pip'].includes(s.area)) s.area = DEFAULTS.stream.area;
   if (!['both', 'base', 'top'].includes(s.layers)) s.layers = DEFAULTS.stream.layers;
   if (!['low', 'standard', 'high'].includes(s.quality)) s.quality = DEFAULTS.stream.quality;
+  if (!['auto', '1', '2', '3', '5', '10'].includes(s.fps)) s.fps = DEFAULTS.stream.fps;
   if (!(Number.isInteger(s.port) && s.port >= 1024 && s.port <= 65535)) s.port = DEFAULTS.stream.port;
   if (!Array.isArray(settings.locations)) settings.locations = [];
   if (!['off', 'stream', 'always'].includes(settings.follow)) settings.follow = DEFAULTS.follow;

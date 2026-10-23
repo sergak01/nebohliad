@@ -23,7 +23,7 @@ const { setupVersionCheck } = require('./version-check');
 const { setupSiteHealth } = require('./site-health');
 const { setupTray } = require('./tray');
 const { setupNotice } = require('./notice-window');
-const { setupStream, QUALITY, AREAS, LAYERS } = require('./stream-server');
+const { setupStream, QUALITY, AREAS, LAYERS, FPS_CHOICES } = require('./stream-server');
 const geocoder = require('./geocoder');
 const { version: APP_VERSION, homepage: HOMEPAGE, license: LICENSE } = require('./package.json');
 const log = require('./logger');
@@ -520,7 +520,7 @@ async function refreshStream() {
 }
 
 function setStreamOption(key, value) {
-  const valid = { area: AREAS, layers: LAYERS, quality: Object.keys(QUALITY) };
+  const valid = { area: AREAS, layers: LAYERS, quality: Object.keys(QUALITY), fps: FPS_CHOICES };
   if (key === 'enabled') settings.stream.enabled = Boolean(value);
   else if (key === 'port' && Number.isInteger(value) && value >= 1024 && value <= 65535) settings.stream.port = value;
   else if (valid[key]?.includes(value)) settings.stream[key] = value;
@@ -805,6 +805,7 @@ ipcMain.on('ui:toolbar-set', (_event, { key, value }) => {
     streamArea: (v) => setStreamOption('area', v),
     streamLayers: (v) => setStreamOption('layers', v),
     streamQuality: (v) => setStreamOption('quality', v),
+    streamFps: (v) => setStreamOption('fps', v),
     streamPort: (v) => setStreamOption('port', Number(v)),
   };
   setters[key]?.(value);

@@ -44,6 +44,8 @@ const QUALITY = {
   high: { maxWidth: 1920, fps: 10, jpeg: 0.82 },
 };
 const AREAS = ['full', 'pip'];
+// The stream's frame rate: 'auto' follows the quality.
+const FPS_CHOICES = ['auto', '1', '2', '3', '5', '10'];
 const LAYERS = ['both', 'base', 'top'];
 
 // Static viewer files that carry no data: served without the token.
@@ -337,7 +339,8 @@ function setupStream(overlay, getPipArea) {
     else entry.resolve(value);
   }
 
-  ipcMain.on('ui:composed', (_event, { id, jpeg, error: e }) => settle(id, jpeg ? Buffer.from(jpeg) : null, e));
+  // jpeg: base64 from the compositor (see compositor.js), or null.
+  ipcMain.on('ui:composed', (_event, { id, jpeg, error: e }) => settle(id, jpeg ? Buffer.from(jpeg, 'base64') : null, e));
   ipcMain.on('ui:webrtc-answer', (_event, { id, sdp, error: e }) => settle(id, sdp, e));
   ipcMain.on('ui:webrtc-peers', (_event, count) => {
     if (count !== webrtcPeers) log.info('stream', 'WebRTC viewers', { count });
@@ -573,8 +576,11 @@ function setupStream(overlay, getPipArea) {
     });
   }
 
+  // Frames per second: the stream's own choice, else the quality's; never
+  // more than the maps' frame limit.
   function frameIntervalMs() {
-    const fps = Math.min(quality().fps, settings.fpsLimit || 60);
+    const chosen = settings.stream.fps === 'auto' ? quality().fps : Number(settings.stream.fps) || quality().fps;
+    const fps = Math.min(chosen, settings.fpsLimit || 60);
     return 1000 / Math.max(1, fps);
   }
 
@@ -1094,4 +1100,4 @@ function setupStream(overlay, getPipArea) {
   return { apply, stop, newLink, state, broadcast, resetVideo, invite, cancelInvite };
 }
 
-module.exports = { setupStream, isLocalAddress, QUALITY, AREAS, LAYERS };
+module.exports = { setupStream, isLocalAddress, QUALITY, AREAS, LAYERS, FPS_CHOICES };

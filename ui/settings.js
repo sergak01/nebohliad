@@ -227,7 +227,7 @@ function renderStream() {
   const s = state.stream;
   setSwitch('stream-enabled', s.enabled);
   if (document.activeElement !== $('stream-port')) $('stream-port').value = s.port;
-  for (const [id, key] of [['stream-area', 'area'], ['stream-layers', 'layers'], ['stream-quality', 'quality']]) {
+  for (const [id, key] of [['stream-area', 'area'], ['stream-layers', 'layers'], ['stream-quality', 'quality'], ['stream-fps', 'fps']]) {
     for (const button of $(id).children) button.classList.toggle('active', button.dataset.value === s[key]);
   }
   let status = t('settings.stream.off');
@@ -576,7 +576,7 @@ $('update-skip').addEventListener('click', () => action('update-skip'));
 $('update-rebuild-copy').addEventListener('click', () => action('copy', REBUILD_COMMAND));
 $('update-enabled').addEventListener('click', () => set('updateCheck', !state.updateCheck));
 $('stream-enabled').addEventListener('click', () => set('streamEnabled', !state.stream.enabled));
-for (const [id, key] of [['stream-area', 'streamArea'], ['stream-layers', 'streamLayers'], ['stream-quality', 'streamQuality']]) {
+for (const [id, key] of [['stream-area', 'streamArea'], ['stream-layers', 'streamLayers'], ['stream-quality', 'streamQuality'], ['stream-fps', 'streamFps']]) {
   for (const button of $(id).children) button.addEventListener('click', () => set(key, button.dataset.value));
 }
 $('stream-new-link').addEventListener('click', () => action('stream-new-link'));

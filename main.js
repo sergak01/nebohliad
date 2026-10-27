@@ -942,9 +942,22 @@ function watchPage(siteId, contents) {
   });
 }
 
+// The map pages never keep the PC awake. ukrainealarm asks for a screen wake
+// lock while it is visible (since 2026-10), and our pages are always visible
+// (backgroundThrottling off, even in the tray), so the screen never turned off
+// or locked. Denied, its request just fails once. Other permissions keep
+// Electron's default (granted).
+const WAKE_LOCKS = new Set(['screen-wake-lock', 'system-wake-lock']);
+
+function denyWakeLocks(ses) {
+  ses.setPermissionRequestHandler((_contents, permission, callback) => callback(!WAKE_LOCKS.has(permission)));
+  ses.setPermissionCheckHandler((_contents, permission) => !WAKE_LOCKS.has(permission));
+}
+
 function createPage(siteId) {
   const site = SITES[siteId];
   const view = new WebContentsView({ webPreferences: pageWebPreferences(site.partition) });
+  denyWakeLocks(view.webContents.session);
   routeExternalLinks(view.webContents);
   watchPage(siteId, view.webContents);
   view.webContents.on('preload-error', (_event, _preloadPath, error) => {

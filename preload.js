@@ -370,6 +370,19 @@ function installMapSync(sendView, sendReady) {
       map.flyTo({ center, zoom, duration: 800 });
       return;
     }
+    // Remote control (stream viewers): steps without animation, since a
+    // window hidden in the tray draws ~1 frame/s. `around`: the point in
+    // container pixels that stays put while zooming (the streamed area's
+    // center), else the map's center.
+    if (command.zoomBy) {
+      const zoom = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), map.getZoom() + command.zoomBy));
+      map.zoomTo(zoom, { duration: 0, ...(command.around ? { around: map.unproject(command.around) } : {}) });
+      return;
+    }
+    if (command.panBy) {
+      map.panBy(command.panBy, { duration: 0 });
+      return;
+    }
     if (command.bbox) map.fitBounds(command.bbox, { padding: 60, maxZoom: 12, duration: 800 });
     // Restoring a saved view at start-up: no animation.
     else if (command.jump) {

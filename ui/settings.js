@@ -267,6 +267,18 @@ function renderStream() {
   renderStreamCode();
   renderDevices();
   renderHealth();
+  renderRemote();
+}
+
+// Remote control from stream viewers: on only with a PIN (never shown here;
+// a new one replaces it and locks every viewer that had unlocked it).
+let remoteMessage = '';
+function renderRemote() {
+  const r = state.remote || {};
+  setSwitch('remote-enabled', r.enabled);
+  $('remote-status').textContent = remoteMessage || t(r.enabled ? 'stream.remote.on' : r.pinSet ? 'stream.remote.off' : 'stream.remote.needPin');
+  $('remote-status').classList.toggle('error', Boolean(remoteMessage));
+  $('remote-pin').placeholder = r.pinSet ? '••••' : '';
 }
 
 // The video watchdog (stream-server.js): the last problem it fixed, else
@@ -580,6 +592,27 @@ for (const [id, key] of [['stream-area', 'streamArea'], ['stream-layers', 'strea
   for (const button of $(id).children) button.addEventListener('click', () => set(key, button.dataset.value));
 }
 $('stream-new-link').addEventListener('click', () => action('stream-new-link'));
+$('remote-enabled').addEventListener('click', () => {
+  if (!state.remote?.pinSet) {
+    remoteMessage = t('stream.remote.needPin');
+    renderRemote();
+    $('remote-pin').focus();
+    return;
+  }
+  set('remoteEnabled', !state.remote.enabled);
+});
+function saveRemotePin() {
+  const pin = $('remote-pin').value.trim();
+  if (!pin) return;
+  remoteMessage = /^\d{4,8}$/.test(pin) ? '' : t('stream.remote.pin.bad');
+  if (!remoteMessage) {
+    set('remotePin', pin);
+    $('remote-pin').value = '';
+  }
+  renderRemote();
+}
+$('remote-pin-save').addEventListener('click', saveRemotePin);
+$('remote-pin').addEventListener('keydown', (event) => event.key === 'Enter' && saveRemotePin());
 $('stream-port').addEventListener('change', (event) => {
   const port = Math.round(Number(event.target.value));
   if (port >= 1024 && port <= 65535) set('streamPort', port);

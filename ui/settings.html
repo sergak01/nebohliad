@@ -235,6 +235,17 @@
         </div>
         <div class="card">
           <div class="row">
+            <div class="text"><span data-i18n="stream.remote"></span><span class="desc" id="remote-status"></span></div>
+            <button class="switch" id="remote-enabled" role="switch"></button>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="stream.remote.pin"></span><span class="desc" data-i18n="stream.remote.pin.desc"></span></div>
+            <input id="remote-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" />
+            <button class="bordered" id="remote-pin-save" data-i18n="stream.remote.pin.save"></button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row">
             <div class="text"><span data-i18n="stream.port"></span><span class="desc" data-i18n="stream.port.title"></span></div>
             <input id="stream-port" type="number" min="1024" max="65535" step="1" />
           </div>

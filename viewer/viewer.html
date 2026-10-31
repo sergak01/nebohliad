@@ -28,6 +28,15 @@
         <button data-mode="mjpeg"></button>
         <button data-mode="snap"></button>
       </div>
+      <button id="remote-btn" hidden>
+        <!-- A TV remote: body, round pad, two rows of keys. -->
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="7" y="2" width="10" height="20" rx="3" />
+          <circle cx="12" cy="8" r="2.2" />
+          <path d="M10 13.5h.01M14 13.5h.01M10 17h.01M14 17h.01" />
+        </svg>
+        <span id="remote-label"></span>
+      </button>
       <button id="notify-btn">🔔</button>
       <button id="awake-btn"></button>
       <button id="autofs-btn"></button>
@@ -47,6 +56,24 @@
       <div class="row"><button id="notify-test"></button><button id="notify-close"></button></div>
     </div>
     <div id="toasts"></div>
+    <!-- Remote control (when the app allows it): unlocked with a PIN. -->
+    <div id="remote-panel" class="bar" hidden>
+      <button id="remote-out">−</button>
+      <button id="remote-in">+</button>
+      <button id="remote-home">⌂</button>
+      <select id="remote-places"></select>
+      <button id="remote-lock">✕</button>
+      <div class="hint" id="remote-hint"></div>
+    </div>
+    <div id="remote-pin" class="modal" hidden>
+      <form class="modal-box" id="remote-pin-form" role="dialog" aria-modal="true" aria-labelledby="remote-pin-title">
+        <h2 id="remote-pin-title"></h2>
+        <p id="remote-pin-text"></p>
+        <input id="remote-pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="8" pattern="[0-9]*" />
+        <p class="login-error" id="remote-pin-error" hidden></p>
+        <div class="row"><button type="button" id="remote-pin-cancel"></button><button type="submit" class="active" id="remote-pin-submit"></button></div>
+      </form>
+    </div>
     <!-- New page code on the computer: reload (no way to dismiss). -->
     <div id="update" class="modal" hidden>
       <div class="modal-box" role="alertdialog" aria-modal="true" aria-labelledby="update-title">

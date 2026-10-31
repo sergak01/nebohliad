@@ -568,6 +568,10 @@
       if (version && event.version !== version) showUpdate();
       return;
     }
+    if (event.kind === 'remote') {
+      setRemoteAvailable(Boolean(event.enabled));
+      return;
+    }
     if (!prefs[kindPref[event.kind]]) return;
     if (prefs.toasts) showToast(event);
     if (prefs.sound && !event.ongoing && !event.quiet) beep(event.level);
@@ -632,6 +636,206 @@
     if (prefs.browser) showBrowserNotification(sample);
   });
 
+  // --- Remote control ---------------------------------------------------------
+  // When the app allows it (Settings → Stream → Remote control), this page
+  // can move the map on the computer: zoom, drag, a saved location. The PIN
+  // from the app unlocks it once; the key it returns is kept in this browser
+  // until the app forgets it (new PIN, remote off, new link, app restart).
+  // Gestures on the picture: drag to move, pinch (or the mouse wheel) to
+  // zoom; they are sent as shares of the picture, so the frame size and
+  // quality do not matter.
+
+  let remoteAvailable = Boolean(window.NEBOHLIAD.remote);
+  let remoteKey = store.get('remoteKey', '');
+  let remoteOpen = false;
+
+  async function remotePost(body) {
+    try {
+      const res = await fetch(`remote?t=${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      return { status: res.status, data: await res.json().catch(() => ({})) };
+    } catch {
+      return { status: 0, data: {} };
+    }
+  }
+
+  function setRemoteAvailable(available) {
+    remoteAvailable = available;
+    $('remote-btn').hidden = !available;
+    if (!available) closeRemote();
+  }
+
+  function renderPlaces(list) {
+    const select = $('remote-places');
+    const head = new Option(s.remotePlaces, '');
+    head.disabled = true;
+    select.replaceChildren(head, ...(list || []).map((loc) => new Option(`${loc.primary ? '⌂ ' : ''}${loc.name}`, loc.id)));
+    select.value = '';
+    select.hidden = !list?.length;
+  }
+
+  function openRemote(locations) {
+    remoteOpen = true;
+    $('remote-panel').hidden = false;
+    $('remote-btn').classList.add('active');
+    document.body.classList.add('remote');
+    if (locations) renderPlaces(locations);
+    else remotePost({ key: remoteKey, action: 'locations' }).then(({ status, data }) => (status === 200 ? renderPlaces(data.locations) : remoteRefused(status)));
+  }
+
+  function closeRemote() {
+    remoteOpen = false;
+    $('remote-panel').hidden = true;
+    $('remote-btn').classList.remove('active');
+    document.body.classList.remove('remote');
+    pointers.clear();
+  }
+
+  // The app no longer accepts this page's key, or the remote is off.
+  function remoteRefused(status) {
+    if (status === 403) {
+      setRemoteAvailable(false);
+      showStatus(s.remoteOff);
+      setTimeout(() => showStatus(''), 4000);
+    } else if (status === 401) {
+      remoteKey = '';
+      store.set('remoteKey', '');
+      closeRemote();
+      askPin();
+    }
+  }
+
+  async function remoteSend(body) {
+    if (!remoteKey) return;
+    const { status } = await remotePost({ key: remoteKey, ...body });
+    if (status === 401 || status === 403) remoteRefused(status);
+  }
+
+  function askPin() {
+    $('remote-pin-input').value = '';
+    $('remote-pin-error').hidden = true;
+    $('remote-pin').hidden = false;
+    $('remote-pin-input').focus();
+  }
+
+  $('remote-pin-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const pin = $('remote-pin-input').value.trim();
+    if (!pin) return;
+    $('remote-pin-submit').disabled = true;
+    const { status, data } = await remotePost({ pin });
+    $('remote-pin-submit').disabled = false;
+    const error = $('remote-pin-error');
+    if (status === 200 && data.key) {
+      remoteKey = data.key;
+      store.set('remoteKey', remoteKey);
+      $('remote-pin').hidden = true;
+      openRemote(data.locations);
+      return;
+    }
+    error.textContent = status === 401 ? s.remoteWrong.replace('{n}', data.left ?? 0) : status === 429 ? s.remoteLocked : status === 403 ? s.remoteOff : s.loginFailed;
+    error.hidden = false;
+    $('remote-pin-input').value = '';
+    $('remote-pin-input').focus();
+    if (status === 403) setRemoteAvailable(false);
+  });
+  $('remote-pin-cancel').addEventListener('click', () => {
+    $('remote-pin').hidden = true;
+  });
+  $('remote-btn').addEventListener('click', () => {
+    if (remoteOpen) closeRemote();
+    else if (remoteKey) openRemote();
+    else askPin();
+  });
+  $('remote-lock').addEventListener('click', closeRemote);
+  $('remote-in').addEventListener('click', () => remoteSend({ action: 'zoom', delta: 1 }));
+  $('remote-out').addEventListener('click', () => remoteSend({ action: 'zoom', delta: -1 }));
+  $('remote-home').addEventListener('click', () => remoteSend({ action: 'location', id: '' }));
+  $('remote-places').addEventListener('change', (event) => {
+    if (event.target.value) remoteSend({ action: 'location', id: event.target.value });
+    event.target.value = '';
+  });
+
+  // The picture's box on screen (object-fit: contain leaves bars).
+  function pictureBox() {
+    const el = mode === 'webrtc' ? video : img;
+    const w = mode === 'webrtc' ? video.videoWidth : img.naturalWidth;
+    const h = mode === 'webrtc' ? video.videoHeight : img.naturalHeight;
+    const box = el.getBoundingClientRect();
+    if (!w || !h || !box.width) return null;
+    const scale = Math.min(box.width / w, box.height / h);
+    return { width: w * scale, height: h * scale };
+  }
+
+  // Moves are summed and sent at most every PAN_SEND_MS.
+  const PAN_SEND_MS = 120;
+  const pointers = new Map(); // pointerId -> { x, y }
+  let pan = { dx: 0, dy: 0 };
+  let panTimer = null;
+  let pinch = null; // { startDistance, distance }
+
+  function flushPan() {
+    panTimer = null;
+    if (Math.abs(pan.dx) < 0.002 && Math.abs(pan.dy) < 0.002) return;
+    remoteSend({ action: 'pan', dx: pan.dx, dy: pan.dy });
+    pan = { dx: 0, dy: 0 };
+  }
+
+  const distance = () => {
+    const [a, b] = [...pointers.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  const onPicture = (event) => event.target === video || event.target === img;
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!remoteOpen || !onPicture(event)) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 2) pinch = { startDistance: distance(), distance: distance() };
+  });
+  document.addEventListener('pointermove', (event) => {
+    const last = pointers.get(event.pointerId);
+    if (!remoteOpen || !last) return;
+    const now = { x: event.clientX, y: event.clientY };
+    pointers.set(event.pointerId, now);
+    if (pinch) {
+      pinch.distance = distance();
+      return;
+    }
+    const box = pictureBox();
+    if (!box) return;
+    // Dragging the picture right moves the view left.
+    pan.dx -= (now.x - last.x) / box.width;
+    pan.dy -= (now.y - last.y) / box.height;
+    panTimer ||= setTimeout(flushPan, PAN_SEND_MS);
+  });
+  const pointerUp = (event) => {
+    if (!pointers.delete(event.pointerId)) return;
+    if (pinch && pointers.size < 2) {
+      const delta = Math.log2(pinch.distance / pinch.startDistance);
+      if (Number.isFinite(delta) && Math.abs(delta) >= 0.1) remoteSend({ action: 'zoom', delta: Math.round(delta * 10) / 10 });
+      pinch = null;
+      pointers.clear(); // The finger left behind starts no drag.
+    }
+  };
+  document.addEventListener('pointerup', pointerUp);
+  document.addEventListener('pointercancel', pointerUp);
+  let wheelAt = 0;
+  document.addEventListener(
+    'wheel',
+    (event) => {
+      if (!remoteOpen || !onPicture(event)) return;
+      event.preventDefault();
+      if (Date.now() - wheelAt < 250) return;
+      wheelAt = Date.now();
+      remoteSend({ action: 'zoom', delta: event.deltaY < 0 ? 0.5 : -0.5 });
+    },
+    { passive: false },
+  );
+
   // --- Labels and start -----------------------------------------------------
 
   for (const button of $('modes').children) {
@@ -652,6 +856,19 @@
   for (const key of ['toasts', 'browser', 'sound', 'drone', 'target', 'alert']) $(`lbl-${key}`).textContent = s.notifyLabels[key];
   $('notify-test').textContent = s.notifyTest;
   $('notify-close').textContent = s.notifyClose;
+  $('remote-label').textContent = s.remote;
+  $('remote-btn').title = s.remoteTitle;
+  $('remote-in').title = s.remoteZoomIn;
+  $('remote-out').title = s.remoteZoomOut;
+  $('remote-home').title = s.remoteHome;
+  $('remote-lock').title = s.remoteLock;
+  $('remote-hint').textContent = s.remoteHint;
+  $('remote-pin-title').textContent = s.remotePinTitle;
+  $('remote-pin-text').textContent = s.remotePinText;
+  $('remote-pin-input').placeholder = s.remotePinPlaceholder;
+  $('remote-pin-submit').textContent = s.remoteUnlock;
+  $('remote-pin-cancel').textContent = s.remoteCancel;
+  setRemoteAvailable(remoteAvailable);
 
   renderPrefs();
   connectEvents();

@@ -458,6 +458,30 @@ function showView(view) {
   basePage().send('map-command', view);
 }
 
+// Remote control from a stream viewer (stream-server.js checks the PIN):
+// { zoomBy, around? } | { panBy: [x, y] } (pixels of the base page) |
+// { location: id } (its region; '' = the primary one). Straight to the base
+// page like follow: the main window may sit in the tray and stays there.
+// Counts as the user's own move, so following lets go.
+function remoteCommand(command) {
+  if (!settings.remote.enabled) return false;
+  const finite = (v) => Number.isFinite(v);
+  let mapCommand = null;
+  if (finite(command.zoomBy)) {
+    mapCommand = { zoomBy: Math.max(-3, Math.min(3, command.zoomBy)) };
+    if (Array.isArray(command.around) && command.around.every(finite)) mapCommand.around = command.around;
+  } else if (Array.isArray(command.panBy) && command.panBy.length === 2 && command.panBy.every(finite)) {
+    mapCommand = { panBy: command.panBy };
+  } else if (typeof command.location === 'string') {
+    const location = command.location ? locations.find(command.location) : locations.primary();
+    if (location) mapCommand = { bbox: location.bbox };
+  }
+  if (!mapCommand) return false;
+  follow?.userMoved();
+  basePage().send('map-command', mapCommand);
+  return true;
+}
+
 // --- Settings and state ----------------------------------------------------
 
 // For the toolbar and the settings panel.
@@ -496,6 +520,7 @@ function pushState() {
   state.about = { version: APP_VERSION, homepage: HOMEPAGE, license: LICENSE };
   const { token, ...streamSettings } = settings.stream; // The token is in the URLs.
   state.stream = { ...streamSettings, ...streamState };
+  state.remote = { enabled: settings.remote.enabled, pinSet: Boolean(settings.remote.pin) }; // Never the PIN.
   toolbarView?.webContents.send('ui:state', state);
   menu?.webContents?.send('ui:state', state);
   settingsWin?.webContents?.send('ui:state', state);
@@ -807,6 +832,19 @@ ipcMain.on('ui:toolbar-set', (_event, { key, value }) => {
     streamQuality: (v) => setStreamOption('quality', v),
     streamFps: (v) => setStreamOption('fps', v),
     streamPort: (v) => setStreamOption('port', Number(v)),
+    // Remote control: on only with a PIN; a new PIN or turning it off locks
+    // every viewer that had unlocked it.
+    remoteEnabled: (enabled) => {
+      settings.remote.enabled = Boolean(enabled && settings.remote.pin);
+      stream?.remoteChanged({ lock: !settings.remote.enabled });
+      stateChanged();
+    },
+    remotePin: (pin) => {
+      if (typeof pin !== 'string' || !/^\d{4,8}$/.test(pin)) return;
+      settings.remote.pin = pin;
+      stream?.remoteChanged({ lock: true });
+      stateChanged();
+    },
   };
   setters[key]?.(value);
 });
@@ -1069,6 +1107,12 @@ const overlay = {
   // Events for LAN stream viewers (alerts.js → stream-server.js).
   streamEvent: (event) => stream?.broadcast(event),
   alertSnapshot: () => alerts?.snapshot() || [],
+  remoteCommand,
+  // For a viewer's remote panel: names only, the primary one first.
+  remoteLocations: () =>
+    [...settings.locations]
+      .sort((a, b) => (b.id === settings.primaryLocationId) - (a.id === settings.primaryLocationId))
+      .map((loc) => ({ id: loc.id, name: loc.name, primary: loc.id === settings.primaryLocationId })),
   sendToSite: (site, channel, data) => pages[site]?.webContents.send(channel, data),
 };
 

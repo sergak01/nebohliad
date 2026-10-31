@@ -36,6 +36,10 @@ const DEFAULTS = {
   // quality: low | standard | high.
   // fps: 'auto' (the quality's) | '1' | '2' | '3' | '5' | '10'.
   stream: { enabled: false, port: 47800, token: '', area: 'full', layers: 'both', quality: 'standard', fps: 'auto' },
+  // Remote control from a stream viewer (stream-server.js /remote): off by
+  // default; a viewer unlocks it with this PIN (4–8 digits). Moves the base
+  // map only: zoom, pan, a saved location.
+  remote: { enabled: false, pin: '' },
   // Base map view, restored at start-up: { center, zoom, bearing, pitch }.
   mapView: null,
   // Center on a target near a location: 'off' | 'stream' (while someone
@@ -77,7 +81,10 @@ function loadSettings(siteIds) {
     opacity: { ...DEFAULTS.opacity, ...saved.opacity },
     alerts: { ...DEFAULTS.alerts, ...saved.alerts },
     stream: { ...DEFAULTS.stream, ...saved.stream },
+    remote: { ...DEFAULTS.remote, ...saved.remote },
   };
+  if (!/^\d{4,8}$/.test(settings.remote.pin)) settings.remote.pin = '';
+  settings.remote.enabled = Boolean(settings.remote.enabled && settings.remote.pin);
   const s = settings.stream;
   if (!['full', 'pip'].includes(s.area)) s.area = DEFAULTS.stream.area;
   if (!['both', 'base', 'top'].includes(s.layers)) s.layers = DEFAULTS.stream.layers;

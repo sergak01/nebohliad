@@ -30,12 +30,13 @@ button.icon { width: 28px; padding: 0; }
 .switch[aria-checked="true"] { background: var(--accent); }
 .switch[aria-checked="true"]::after { left: 19px; }
 
-input[type=text], input[type=number] {
+input[type=text], input[type=number], input[type=password] {
   height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--bg); color: var(--fg); font: inherit; outline: none; user-select: text;
 }
-input[type=text]:focus, input[type=number]:focus { border-color: var(--accent); }
+input[type=text]:focus, input[type=number]:focus, input[type=password]:focus { border-color: var(--accent); }
 input[type=number] { width: 84px; }
+input[type=password] { width: 96px; letter-spacing: 0.15em; }
 input[type=time] { height: 30px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; color-scheme: inherit; }
 input[type=range] { width: 180px; accent-color: var(--accent); }
 

@@ -148,3 +148,65 @@ body.login { overflow: auto; display: flex; align-items: center; justify-content
 .pair-box .hint { margin: 12px 0 0; }
 .pair-choices { display: flex; gap: 10px; justify-content: center; }
 .pair-choices button { flex: 1; max-width: 104px; height: 72px; font: 600 30px/1 "Segoe UI", system-ui, sans-serif; border-radius: 8px; }
+
+/* Remote control: a panel at the bottom right, above the safety line; while
+   it is open, drags and pinches on the picture go to the app instead of the
+   browser, and toasts move up out of its way. */
+body.remote #video, body.remote #img { touch-action: none; }
+body.remote #toasts { bottom: calc(132px + env(safe-area-inset-bottom)); }
+#remote-panel {
+  right: calc(8px + env(safe-area-inset-right));
+  bottom: calc(36px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px;
+  max-width: min(360px, calc(100vw - 32px));
+  z-index: 3;
+}
+#remote-panel[hidden] { display: none; }
+#remote-panel > button { flex: none; min-width: 44px; height: 40px; font-size: 18px; border-radius: 6px; }
+#remote-places {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 40px;
+  max-width: 150px;
+  border: 1px solid #2a2d35;
+  border-radius: 6px;
+  background: #1b1e25;
+  color: #e8e9ec;
+  font: inherit;
+  font-size: 14px;
+}
+#remote-places[hidden] { display: none; }
+#remote-hint { flex-basis: 100%; text-align: right; font-size: 11px; }
+#remote-pin-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  font: 600 24px/1.2 Consolas, ui-monospace, monospace;
+  letter-spacing: 0.3em;
+  text-align: center;
+  padding: 10px;
+  border: 1px solid #2a2d35;
+  border-radius: 6px;
+  background: #1b1e25;
+  color: #e8e9ec;
+}
+#remote-pin-input:focus { outline: 2px solid #f5b301; outline-offset: 1px; }
+#remote-pin .row button { width: auto; flex: 1; }
+/* Line icons in buttons (the remote's), drawn with the text color. */
+button .icon {
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+  margin-right: 4px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#remote-btn .icon path { stroke-width: 2.6; }

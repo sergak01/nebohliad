@@ -69,6 +69,11 @@ const MAX_FAILS_PER_ADDRESS = 5;
 const MAX_FAILS_TOTAL = 30;
 const MAX_LOGIN_BYTES = 1024;
 const EVENT_PING_MS = 25_000;
+// Remote control: a viewer unlocks it with the PIN from Settings → Stream
+// and gets a key (one per device, until the PIN changes, the remote is
+// turned off, a new link is made or the app restarts). Wrong PINs count as
+// failed sign-ins (same limits as the code).
+const MAX_REMOTE_KEYS = 16;
 
 function newToken() {
   return crypto.randomBytes(12).toString('base64url');
@@ -161,6 +166,22 @@ const VIEWER_STRINGS = {
     updateTitle: 'Сторінку оновлено',
     updateText: 'Небогляд на комп’ютері має нову версію цієї сторінки. Онови її, щоб усе працювало правильно.',
     updateButton: 'Оновити сторінку',
+    remote: 'Пульт',
+    remoteTitle: 'Керувати мапою на комп’ютері: масштаб і місце',
+    remotePinTitle: 'Пульт',
+    remotePinText: 'Введи PIN пульта з Небогляду: «Налаштування» → «Трансляція» → «Пульт».',
+    remotePinPlaceholder: 'PIN',
+    remoteUnlock: 'Відкрити',
+    remoteCancel: 'Скасувати',
+    remoteWrong: 'Неправильний PIN. Залишилося спроб: {n}.',
+    remoteLocked: 'Забагато спроб. Спробуй пізніше.',
+    remoteOff: 'Пульт вимкнено в Небогляді.',
+    remoteZoomIn: 'Наблизити',
+    remoteZoomOut: 'Віддалити',
+    remoteHome: 'Основна локація',
+    remotePlaces: 'Локації',
+    remoteLock: 'Закрити пульт',
+    remoteHint: 'Тягни зображення, щоб зсунути мапу; зводь або розводь два пальці для масштабу.',
   },
   en: {
     app: 'Nebohliad',
@@ -218,6 +239,22 @@ const VIEWER_STRINGS = {
     updateTitle: 'This page was updated',
     updateText: 'Nebohliad on the computer has a new version of this page. Reload it so everything works correctly.',
     updateButton: 'Reload page',
+    remote: 'Remote',
+    remoteTitle: 'Control the map on the computer: zoom and place',
+    remotePinTitle: 'Remote',
+    remotePinText: 'Enter the remote PIN from Nebohliad: "Settings" → "Stream" → "Remote control".',
+    remotePinPlaceholder: 'PIN',
+    remoteUnlock: 'Unlock',
+    remoteCancel: 'Cancel',
+    remoteWrong: 'Wrong PIN. Attempts left: {n}.',
+    remoteLocked: 'Too many attempts. Try again later.',
+    remoteOff: 'Remote control is off in Nebohliad.',
+    remoteZoomIn: 'Zoom in',
+    remoteZoomOut: 'Zoom out',
+    remoteHome: 'Primary location',
+    remotePlaces: 'Locations',
+    remoteLock: 'Close the remote',
+    remoteHint: 'Drag the picture to move the map; pinch with two fingers to zoom.',
   },
 };
 
@@ -233,10 +270,10 @@ function viewerVersion() {
   return hash.digest('base64url').slice(0, 16);
 }
 
-function viewerHtml(lang, token) {
+function viewerHtml(lang, token, remote) {
   const s = VIEWER_STRINGS[lang] || VIEWER_STRINGS.uk;
   // JSON inside <script>: no "</" may close the tag early.
-  const config = JSON.stringify({ token, snapshotSeconds: SNAPSHOT_SECONDS, version: viewerVersion(), s }).replace(/</g, '\\u003c');
+  const config = JSON.stringify({ token, remote, snapshotSeconds: SNAPSHOT_SECONDS, version: viewerVersion(), s }).replace(/</g, '\\u003c');
   return fs
     .readFileSync(path.join(VIEWER_DIR, 'viewer.html'), 'utf8')
     .replace(/__LANG__/g, lang)
@@ -828,6 +865,81 @@ function setupStream(overlay, getPipArea) {
     return sendJson(res, 401, { wrong: true });
   }
 
+  // --- Remote control ----------------------------------------------------
+  // POST /remote (with the stream token): { pin } unlocks and returns
+  // { key, locations }; { key, action } then moves the base map:
+  // 'zoom' { delta } (zoom levels), 'pan' { dx, dy } (shares of the picture
+  // the view moves by), 'location' { id } ('' = the primary one),
+  // 'locations' (the list again). The app does the moving (main.js
+  // remoteCommand); this only checks and converts.
+
+  const remoteKeys = new Map(); // key -> { address, at }
+
+  function remoteKeyMatches(value) {
+    if (typeof value !== 'string' || !value) return false;
+    for (const key of remoteKeys.keys()) if (sameText(value, key)) return true;
+    return false;
+  }
+
+  // The streamed area in base page pixels: the PiP selection or the map.
+  function streamedArea() {
+    const area = captureArea();
+    if (area) return area;
+    const { width, height } = overlay.mapBounds();
+    return { x: 0, y: 0, width, height };
+  }
+
+  async function handleRemote(req, res) {
+    if (req.method !== 'POST') return res.writeHead(405).end();
+    const address = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+    let body = {};
+    try {
+      body = JSON.parse(await readBody(req, MAX_LOGIN_BYTES));
+    } catch {
+      return sendJson(res, 400, {});
+    }
+    if (!settings.remote.enabled || !settings.remote.pin) return sendJson(res, 403, { off: true });
+    if ('pin' in body) {
+      const count = recentFails(address);
+      if (count.address >= MAX_FAILS_PER_ADDRESS || count.total >= MAX_FAILS_TOTAL) return sendJson(res, 429, {});
+      const pin = String(body.pin || '').trim();
+      if (!/^\d{4,8}$/.test(pin) || !sameText(pin, settings.remote.pin)) {
+        fails.push({ address, at: Date.now() });
+        log.warn('stream', 'remote: wrong PIN', { address });
+        return sendJson(res, 401, { left: Math.max(0, MAX_FAILS_PER_ADDRESS - count.address - 1) });
+      }
+      const key = newToken();
+      remoteKeys.set(key, { address, at: Date.now() });
+      while (remoteKeys.size > MAX_REMOTE_KEYS) remoteKeys.delete(remoteKeys.keys().next().value);
+      log.info('stream', 'remote unlocked', { address });
+      return sendJson(res, 200, { key, locations: overlay.remoteLocations() });
+    }
+    if (!remoteKeyMatches(body.key)) return sendJson(res, 401, { locked: true });
+    const area = streamedArea();
+    const number = (v, limit) => Math.max(-limit, Math.min(limit, Number(v) || 0));
+    let done = false;
+    if (body.action === 'zoom') {
+      const around = captureArea() ? [area.x + area.width / 2, area.y + area.height / 2] : undefined;
+      done = overlay.remoteCommand({ zoomBy: number(body.delta, 3), around });
+    } else if (body.action === 'pan') {
+      done = overlay.remoteCommand({ panBy: [number(body.dx, 2) * area.width, number(body.dy, 2) * area.height] });
+    } else if (body.action === 'location') {
+      done = overlay.remoteCommand({ location: String(body.id || '') });
+    } else if (body.action === 'locations') {
+      return sendJson(res, 200, { locations: overlay.remoteLocations() });
+    }
+    return sendJson(res, done ? 200 : 400, {});
+  }
+
+  // Remote control turned on or off, or a new PIN (lock: forget every key).
+  function remoteChanged({ lock = false } = {}) {
+    if (lock && remoteKeys.size) {
+      remoteKeys.clear();
+      log.info('stream', 'remote locked for every viewer');
+    }
+    broadcastState({ kind: 'remote', enabled: settings.remote.enabled });
+  }
+
   function readBody(req, limit) {
     return new Promise((resolve, reject) => {
       const chunks = [];
@@ -912,12 +1024,14 @@ function setupStream(overlay, getPipArea) {
       res.writeHead(204, noStore).end();
     } else if (url.pathname === '/') {
       res.writeHead(200, { ...noStore, 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(viewerHtml(settings.lang, settings.stream.token));
+      res.end(viewerHtml(settings.lang, settings.stream.token, settings.remote.enabled));
     } else if (url.pathname === '/manifest.webmanifest') {
       res.writeHead(200, { ...noStore, 'Content-Type': 'application/manifest+json' });
       res.end(manifest(settings.lang, settings.stream.token));
     } else if (url.pathname === '/webrtc') {
       handleWebRtc(req, res);
+    } else if (url.pathname === '/remote') {
+      handleRemote(req, res);
     } else if (url.pathname === '/events') {
       openEvents(req, res);
     } else if (url.pathname === '/stream.mjpg') {
@@ -969,6 +1083,7 @@ function setupStream(overlay, getPipArea) {
     });
     res.write('retry: 3000\n\n');
     sendEvent(res, { kind: 'version', version: viewerVersion() });
+    sendEvent(res, { kind: 'remote', enabled: settings.remote.enabled });
     for (const event of overlay.alertSnapshot()) sendEvent(res, { ...event, at: new Date().toISOString() });
     eventClients.add(res);
     req.on('close', () => eventClients.delete(res));
@@ -985,6 +1100,11 @@ function setupStream(overlay, getPipArea) {
     if (!server) return;
     const stamped = { ...event, at: new Date().toISOString() };
     for (const client of eventClients) sendEvent(client, stamped);
+  }
+
+  // A state change for the page itself, not a notification.
+  function broadcastState(event) {
+    for (const client of eventClients) sendEvent(client, event);
   }
 
   // Viewer files edited while the app runs (development): tell open pages.
@@ -1048,6 +1168,7 @@ function setupStream(overlay, getPipArea) {
     closeViewers();
     clearCode();
     waiting.clear();
+    remoteKeys.clear();
     unwatchViewer();
     latestFrame = null;
     if (server) {
@@ -1073,6 +1194,7 @@ function setupStream(overlay, getPipArea) {
   function newLink() {
     settings.stream.token = newToken();
     if (server) rotateCode({ keepPrevious: false });
+    remoteKeys.clear();
     closeViewers();
   }
 
@@ -1097,7 +1219,7 @@ function setupStream(overlay, getPipArea) {
     return { running, error, viewers: viewers(), urls, qr, code: signInCode, devices, health: videoHealth };
   }
 
-  return { apply, stop, newLink, state, broadcast, resetVideo, invite, cancelInvite };
+  return { apply, stop, newLink, state, broadcast, resetVideo, invite, cancelInvite, remoteChanged };
 }
 
 module.exports = { setupStream, isLocalAddress, QUALITY, AREAS, LAYERS, FPS_CHOICES };

@@ -547,15 +547,44 @@ function installMapSync(sendView, sendReady) {
   // Targets the page's map currently has, as [{ id, kind, center }], read
   // from the page itself. war-monitor keeps them in its GeoJSON source
   // 'wm-icons'; ukrainealarm draws them as DOM markers in the map container.
+  // From an icon file name or the icon's label (Ukrainian or English).
   function kindOfIcon(iconType) {
     const t = iconType.toLowerCase();
-    if (/ballist/.test(t)) return 'ballistic';
-    if (/kab|bomb|guided/.test(t)) return 'kab';
-    if (/cruise|missile|rocket|kalibr|banderol/.test(t)) return 'cruise';
-    if (/jet|reactive/.test(t)) return 'jet';
-    if (/shahed|drone|uav|geran|gerbera|zala|orlan|supercam|lancet/.test(t)) return 'uav';
-    if (/aviation|plane|aircraft|tactical/.test(t)) return 'aviation';
+    if (/ballist|балісти/.test(t)) return 'ballistic';
+    if (/kab|bomb|guided|каб|бомб/.test(t)) return 'kab';
+    if (/cruise|missile|rocket|kalibr|banderol|крилат|ракет|калібр/.test(t)) return 'cruise';
+    if (/jet|reactive|реактив/.test(t)) return 'jet';
+    if (/shahed|drone|uav|geran|gerbera|zala|orlan|supercam|lancet|шахед|бпла|дрон|ланцет|гербер/.test(t)) return 'uav';
+    if (/aviation|plane|aircraft|tactical|авіац|літак/.test(t)) return 'aviation';
     return 'unknown';
+  }
+
+  // ukrainealarm's targets as [{ kind, x, y }] in map container pixels. The
+  // site draws them in one of two ways (seen 2026-10-31, it switches between
+  // them without a reload): MapLibre DOM markers, or icons inside an SVG
+  // layer over the map, each an accessible button with its type as label.
+  // Only where the page has drawn them is read, never the site's data.
+  function ukrainealarmTargets(map) {
+    const container = map.getContainer();
+    const markers = [...container.querySelectorAll('.detailSatelliteTarget.maplibregl-marker')].flatMap((el) => {
+      // MapLibre positions markers with the last translate(x px, y px).
+      const match = [...el.style.transform.matchAll(/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/g)].pop();
+      if (!match) return [];
+      const icon = el.querySelector('svg');
+      const type = el.dataset.iconType || icon?.dataset.targetIconSource || icon?.getAttribute('aria-label') || '';
+      return [{ kind: kindOfIcon(type), x: Number(match[1]), y: Number(match[2]) }];
+    });
+    if (markers.length) return markers;
+    const box = container.getBoundingClientRect();
+    return [...container.querySelectorAll('svg [role="button"][aria-label]')].flatMap((el) => {
+      const rect = el.getBoundingClientRect();
+      if (!rect.width && !rect.height) return [];
+      return [{
+        kind: kindOfIcon(el.getAttribute('aria-label')),
+        x: rect.left + rect.width / 2 - box.left,
+        y: rect.top + rect.height / 2 - box.top,
+      }];
+    });
   }
 
   async function readTargets() {
@@ -570,15 +599,11 @@ function installMapSync(sendView, sendReady) {
         .map((f) => ({ id: String(f.properties.tid), kind: f.properties.cls || 'unknown', center: f.geometry.coordinates.slice(0, 2) }));
     }
     if (window.location.hostname === 'map.ukrainealarm.com') {
-      return [...map.getContainer().querySelectorAll('.detailSatelliteTarget.maplibregl-marker')].flatMap((el) => {
-        // MapLibre positions markers with the last translate(x px, y px).
-        const match = [...el.style.transform.matchAll(/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/g)].pop();
-        if (!match) return [];
-        const { lng, lat } = map.unproject([Number(match[1]), Number(match[2])]);
-        const kind = kindOfIcon(el.dataset.iconType || '');
+      return ukrainealarmTargets(map).map(({ kind, x, y }) => {
+        const { lng, lat } = map.unproject([x, y]);
         // No ids on the page: type plus a ~20 km cell, so a moving target
         // keeps its id for a while.
-        return [{ id: `${kind}:${Math.round(lat * 5)}:${Math.round(lng * 5)}`, kind, center: [lng, lat] }];
+        return { id: `${kind}:${Math.round(lat * 5)}:${Math.round(lng * 5)}`, kind, center: [lng, lat] };
       });
     }
     return [];
@@ -934,7 +959,10 @@ setInterval(() => {
 if (location.hostname === 'map.ukrainealarm.com') {
   let lastTargetsReport = '';
   setInterval(() => {
-    const markers = document.querySelectorAll('[data-nebohliad-main] .detailSatelliteTarget').length;
+    // Either way the site draws them (see ukrainealarmTargets).
+    const markers =
+      document.querySelectorAll('[data-nebohliad-main] .detailSatelliteTarget').length ||
+      document.querySelectorAll('[data-nebohliad-main] svg [role="button"][aria-label]').length;
     const label = [...document.querySelectorAll('body *')].find((e) => e.children.length === 0 && /^Загрози:?$/.test(e.textContent.trim()));
     const threats = Number((label?.parentElement?.textContent.match(/\d+/) || [])[0]);
     const report = JSON.stringify({ markers, threats: Number.isFinite(threats) ? threats : null });

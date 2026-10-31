@@ -53,6 +53,9 @@
   посиланням із ключем або одноразовим кодом із застосунку; сторінку
   можна додати на початковий екран телефона. Вимкнена за замовчуванням, лише
   для локальної мережі й за посиланням із ключем.
+- Пульт: з телефона, що дивиться трансляцію, можна наближати й зсувати мапу
+  на комп'ютері або перейти до локації. Вимкнений за замовчуванням, вмикається
+  в налаштуваннях трансляції й відкривається PIN-кодом.
 
 ## Як це працює
 - Обидва сайти відкриваються як звичайні вебсторінки, кожен у своєму вікні,
@@ -206,6 +209,9 @@ of the other, with synchronized zoom and position.
   with the link and its key or a one-time code from the app; it can
   be added to a phone's home screen. Off by default, local network
   only, and only with a link that carries a key.
+- Remote control: a phone watching the stream can zoom and move the map on
+  the computer or go to a location. Off by default; turned on in the stream
+  settings and unlocked with a PIN.
 
 ### How it works
 - Both sites open as normal web pages, each in its own window, just as in a

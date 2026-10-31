@@ -413,7 +413,7 @@ function pageMode(contents) {
     dismissSafety: Boolean(notice?.confirmed()),
     lang: settings.lang,
     theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
-    fps: settings.fpsLimit,
+    fps: boostTimer ? 60 : settings.fpsLimit,
     // The top layer's opacity is applied by the page to its map only, so the
     // site's panels, cards and the Cloudflare check stay fully opaque.
     opacity: isBase ? 1 : currentOpacity(),
@@ -479,7 +479,24 @@ function remoteCommand(command) {
   if (!mapCommand) return false;
   follow?.userMoved();
   basePage().send('map-command', mapCommand);
+  boostFrames();
   return true;
+}
+
+// While a viewer steers the map from the remote, the maps draw without the
+// frame limit and the stream sends more frames, so the picture follows the
+// finger; BOOST_MS after the last command both go back to the settings.
+const BOOST_MS = 4000;
+let boostTimer = null;
+
+function boostFrames() {
+  if (!boostTimer) for (const view of Object.values(pages)) view.webContents.send('frame-limit', 60);
+  clearTimeout(boostTimer);
+  boostTimer = setTimeout(() => {
+    boostTimer = null;
+    for (const view of Object.values(pages)) view.webContents.send('frame-limit', settings.fpsLimit);
+  }, BOOST_MS);
+  stream?.boost(BOOST_MS);
 }
 
 // --- Settings and state ----------------------------------------------------

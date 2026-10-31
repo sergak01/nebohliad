@@ -1014,6 +1014,8 @@ const mapSync = contextBridge.executeInMainWorld({
 ipcRenderer.on('set-map-view', (_event, view) => mapSync.setView(view));
 ipcRenderer.on('emit-map-view', () => mapSync.emitView());
 ipcRenderer.on('map-command', (_event, command) => mapSync.runCommand(command));
+// A temporary frame limit (main.js boostFrames, while the remote is used).
+ipcRenderer.on('frame-limit', (_event, fps) => frameLimit.setFrameLimit(fps));
 ipcRenderer.on('map-pin', (_event, pin) => mapSync.setPin(pin));
 ipcRenderer.on('map-locations', (_event, data) => mapSync.setLocations(data));
 ipcRenderer.on('map-alert-areas', (_event, data) => mapSync.setAlertAreas(data));

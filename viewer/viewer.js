@@ -78,6 +78,14 @@
     pc = peer;
     peer.addTransceiver('video', { direction: 'recvonly' });
     peer.ontrack = (event) => {
+      // Show each frame as soon as it arrives: no jitter buffer (a map
+      // changes rarely, and the remote wants the picture to follow fast).
+      try {
+        if ('jitterBufferTarget' in event.receiver) event.receiver.jitterBufferTarget = 0;
+        else event.receiver.playoutDelayHint = 0;
+      } catch {
+        // Not supported here: the browser's default delay.
+      }
       video.srcObject = event.streams[0] || new MediaStream([event.track]);
       video.style.display = 'block';
       video.play().catch(() => {});
@@ -768,70 +776,83 @@
     const box = el.getBoundingClientRect();
     if (!w || !h || !box.width) return null;
     const scale = Math.min(box.width / w, box.height / h);
-    return { width: w * scale, height: h * scale };
+    const width = w * scale;
+    const height = h * scale;
+    return { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2, width, height };
   }
 
-  // Moves are summed and sent at most every PAN_SEND_MS.
-  const PAN_SEND_MS = 120;
+  // A point on screen as shares of the picture (0..1), for zooming there.
+  function pictureShare(point, box) {
+    const clamp = (v) => Math.min(1, Math.max(0, v));
+    return { x: clamp((point.x - box.left) / box.width), y: clamp((point.y - box.top) / box.height) };
+  }
+
+  // Gestures are summed and sent every SEND_MS while they last, one request
+  // after the other (pan first, then zoom around the fingers), so the map
+  // keeps up with the finger without a pile of requests on a slow network.
+  // The app streams faster meanwhile (main.js boostFrames).
+  const SEND_MS = 100;
   const pointers = new Map(); // pointerId -> { x, y }
-  let pan = { dx: 0, dy: 0 };
-  let panTimer = null;
-  let pinch = null; // { startDistance, distance }
+  let pending = { dx: 0, dy: 0, zoom: 0, at: null };
+  let sendTimer = null;
+  let sending = false;
 
-  function flushPan() {
-    panTimer = null;
-    if (Math.abs(pan.dx) < 0.002 && Math.abs(pan.dy) < 0.002) return;
-    remoteSend({ action: 'pan', dx: pan.dx, dy: pan.dy });
-    pan = { dx: 0, dy: 0 };
+  function scheduleSend() {
+    if (!sendTimer && !sending) sendTimer = setTimeout(flushGesture, SEND_MS);
   }
 
-  const distance = () => {
-    const [a, b] = [...pointers.values()];
-    return Math.hypot(a.x - b.x, a.y - b.y);
-  };
+  async function flushGesture() {
+    sendTimer = null;
+    const { dx, dy, zoom, at } = pending;
+    pending = { dx: 0, dy: 0, zoom: 0, at: null };
+    sending = true;
+    if (Math.abs(dx) >= 0.002 || Math.abs(dy) >= 0.002) await remoteSend({ action: 'pan', dx, dy });
+    if (Math.abs(zoom) >= 0.02) await remoteSend({ action: 'zoom', delta: Math.round(zoom * 100) / 100, ...(at || {}) });
+    sending = false;
+    if (pending.dx || pending.dy || pending.zoom) scheduleSend();
+  }
+
+  const middle = (list) => ({ x: (list[0].x + list[1].x) / 2, y: (list[0].y + list[1].y) / 2 });
+  const spread = (list) => Math.hypot(list[0].x - list[1].x, list[0].y - list[1].y);
   const onPicture = (event) => event.target === video || event.target === img;
 
   document.addEventListener('pointerdown', (event) => {
     if (!remoteOpen || !onPicture(event)) return;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (pointers.size === 2) pinch = { startDistance: distance(), distance: distance() };
   });
+  // One finger drags; two drag by their middle and zoom around it.
   document.addEventListener('pointermove', (event) => {
-    const last = pointers.get(event.pointerId);
-    if (!remoteOpen || !last) return;
-    const now = { x: event.clientX, y: event.clientY };
-    pointers.set(event.pointerId, now);
-    if (pinch) {
-      pinch.distance = distance();
-      return;
-    }
+    if (!remoteOpen || !pointers.has(event.pointerId)) return;
     const box = pictureBox();
+    const before = [...pointers.values()].slice(0, 2);
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const after = [...pointers.values()].slice(0, 2);
     if (!box) return;
+    const [from, to] = after.length === 2 ? [middle(before), middle(after)] : [before[0], after[0]];
     // Dragging the picture right moves the view left.
-    pan.dx -= (now.x - last.x) / box.width;
-    pan.dy -= (now.y - last.y) / box.height;
-    panTimer ||= setTimeout(flushPan, PAN_SEND_MS);
-  });
-  const pointerUp = (event) => {
-    if (!pointers.delete(event.pointerId)) return;
-    if (pinch && pointers.size < 2) {
-      const delta = Math.log2(pinch.distance / pinch.startDistance);
-      if (Number.isFinite(delta) && Math.abs(delta) >= 0.1) remoteSend({ action: 'zoom', delta: Math.round(delta * 10) / 10 });
-      pinch = null;
-      pointers.clear(); // The finger left behind starts no drag.
+    pending.dx -= (to.x - from.x) / box.width;
+    pending.dy -= (to.y - from.y) / box.height;
+    if (after.length === 2) {
+      const ratio = spread(after) / spread(before);
+      if (Number.isFinite(ratio) && ratio > 0) pending.zoom += Math.log2(ratio);
+      pending.at = pictureShare(to, box);
     }
-  };
+    scheduleSend();
+  });
+  const pointerUp = (event) => pointers.delete(event.pointerId);
   document.addEventListener('pointerup', pointerUp);
   document.addEventListener('pointercancel', pointerUp);
-  let wheelAt = 0;
+  // The mouse wheel zooms around the cursor.
   document.addEventListener(
     'wheel',
     (event) => {
       if (!remoteOpen || !onPicture(event)) return;
       event.preventDefault();
-      if (Date.now() - wheelAt < 250) return;
-      wheelAt = Date.now();
-      remoteSend({ action: 'zoom', delta: event.deltaY < 0 ? 0.5 : -0.5 });
+      const box = pictureBox();
+      if (!box) return;
+      pending.zoom += Math.max(-0.5, Math.min(0.5, -event.deltaY / 200));
+      pending.at = pictureShare({ x: event.clientX, y: event.clientY }, box);
+      scheduleSend();
     },
     { passive: false },
   );

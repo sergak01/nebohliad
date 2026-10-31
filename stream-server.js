@@ -74,6 +74,10 @@ const EVENT_PING_MS = 25_000;
 // turned off, a new link is made or the app restarts). Wrong PINs count as
 // failed sign-ins (same limits as the code).
 const MAX_REMOTE_KEYS = 16;
+// Frames per second while the remote moves the map (the high quality's rate;
+// a capture of both pages takes ~25 ms, though high quality may still fall
+// short of it).
+const BOOST_FPS = 10;
 
 function newToken() {
   return crypto.randomBytes(12).toString('base64url');
@@ -617,8 +621,17 @@ function setupStream(overlay, getPipArea) {
   // more than the maps' frame limit.
   function frameIntervalMs() {
     const chosen = settings.stream.fps === 'auto' ? quality().fps : Number(settings.stream.fps) || quality().fps;
-    const fps = Math.min(chosen, settings.fpsLimit || 60);
+    const fps = Date.now() < boostUntil ? Math.max(chosen, BOOST_FPS) : Math.min(chosen, settings.fpsLimit || 60);
     return 1000 / Math.max(1, fps);
+  }
+
+  // While the remote moves the map (main.js boostFrames): at least
+  // BOOST_FPS until `ms` from now; a pause between frames ends at once.
+  let boostUntil = 0;
+  function boost(ms) {
+    const was = Date.now() < boostUntil;
+    boostUntil = Date.now() + ms;
+    if (!was && looping) wakeLoop?.();
   }
 
   function writeFrame(client, jpeg) {
@@ -868,7 +881,8 @@ function setupStream(overlay, getPipArea) {
   // --- Remote control ----------------------------------------------------
   // POST /remote (with the stream token): { pin } unlocks and returns
   // { key, locations }; { key, action } then moves the base map:
-  // 'zoom' { delta } (zoom levels), 'pan' { dx, dy } (shares of the picture
+  // 'zoom' { delta, x?, y? } (zoom levels, around a point given in shares of
+  // the picture), 'pan' { dx, dy } (shares of the picture
   // the view moves by), 'location' { id } ('' = the primary one),
   // 'locations' (the list again). The app does the moving (main.js
   // remoteCommand); this only checks and converts.
@@ -919,7 +933,15 @@ function setupStream(overlay, getPipArea) {
     const number = (v, limit) => Math.max(-limit, Math.min(limit, Number(v) || 0));
     let done = false;
     if (body.action === 'zoom') {
-      const around = captureArea() ? [area.x + area.width / 2, area.y + area.height / 2] : undefined;
+      // Around the fingers or the cursor ({ x, y }: shares of the picture),
+      // else the picture's center (the PiP area's, or the map's own).
+      const share = (v) => Math.min(1, Math.max(0, Number(v)));
+      const at = Number.isFinite(Number(body.x)) && Number.isFinite(Number(body.y)) && body.x !== null && body.y !== null;
+      const around = at
+        ? [area.x + share(body.x) * area.width, area.y + share(body.y) * area.height]
+        : captureArea()
+          ? [area.x + area.width / 2, area.y + area.height / 2]
+          : undefined;
       done = overlay.remoteCommand({ zoomBy: number(body.delta, 3), around });
     } else if (body.action === 'pan') {
       done = overlay.remoteCommand({ panBy: [number(body.dx, 2) * area.width, number(body.dy, 2) * area.height] });
@@ -1219,7 +1241,7 @@ function setupStream(overlay, getPipArea) {
     return { running, error, viewers: viewers(), urls, qr, code: signInCode, devices, health: videoHealth };
   }
 
-  return { apply, stop, newLink, state, broadcast, resetVideo, invite, cancelInvite, remoteChanged };
+  return { apply, stop, newLink, state, broadcast, resetVideo, invite, cancelInvite, remoteChanged, boost };
 }
 
 module.exports = { setupStream, isLocalAddress, QUALITY, AREAS, LAYERS, FPS_CHOICES };

@@ -571,7 +571,14 @@
   }
   $('update-reload').addEventListener('click', () => location.reload());
 
+  // Alerts this page has shown (tag → state), so a reconnect's snapshot can
+  // tell an alert it missed while the connection was down (announced in
+  // full) from one it already showed (quiet, as on the first connection).
+  const shownAlerts = new Map();
+  let eventOpens = 0;
+
   function handleEvent(event) {
+    if (event.kind === 'ping') return;
     if (event.kind === 'version') {
       if (version && event.version !== version) showUpdate();
       return;
@@ -580,17 +587,34 @@
       setRemoteAvailable(Boolean(event.enabled));
       return;
     }
+    if (kindPref[event.kind] === 'alert' && event.tag) {
+      const state = `${event.level}|${event.body}`;
+      if (event.ongoing && eventOpens > 1 && shownAlerts.get(event.tag) !== state) event = { ...event, ongoing: false };
+      if (event.kind === 'alert-end') shownAlerts.delete(event.tag);
+      else shownAlerts.set(event.tag, state);
+    }
     if (!prefs[kindPref[event.kind]]) return;
     if (prefs.toasts) showToast(event);
     if (prefs.sound && !event.ongoing && !event.quiet) beep(event.level);
     if (prefs.browser && !event.ongoing) showBrowserNotification(event);
   }
 
+  // The app pings every 25 s; nothing for this long means the connection
+  // died without the browser noticing (the video, over WebRTC, may still
+  // play), so it is opened again.
+  const EVENTS_SILENT_MS = 70_000;
   let events = null;
+  let lastEventAt = 0;
   function connectEvents() {
     events?.close();
+    lastEventAt = Date.now();
     events = new EventSource(`events?t=${token}`);
+    events.onopen = () => {
+      eventOpens++;
+      lastEventAt = Date.now();
+    };
     events.onmessage = (message) => {
+      lastEventAt = Date.now();
       try {
         handleEvent(JSON.parse(message.data));
       } catch {
@@ -607,6 +631,11 @@
         .catch(() => {});
     };
   }
+  // Also after an HTTP error, which ends EventSource's own retries.
+  setInterval(() => {
+    if (!events) return;
+    if (events.readyState === EventSource.CLOSED || Date.now() - lastEventAt > EVENTS_SILENT_MS) connectEvents();
+  }, 10_000);
 
   function renderPrefs() {
     for (const key of Object.keys(prefs)) $(`opt-${key}`).checked = prefs[key];

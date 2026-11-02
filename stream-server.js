@@ -1103,16 +1103,24 @@ function setupStream(overlay, getPipArea) {
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
+    // A phone that drops off Wi-Fi leaves a half-open socket: TCP keep-alive
+    // finds it sooner than our writes do.
+    req.socket.setKeepAlive(true, 15_000);
     res.write('retry: 3000\n\n');
     sendEvent(res, { kind: 'version', version: viewerVersion() });
     sendEvent(res, { kind: 'remote', enabled: settings.remote.enabled });
     for (const event of overlay.alertSnapshot()) sendEvent(res, { ...event, at: new Date().toISOString() });
     eventClients.add(res);
-    req.on('close', () => eventClients.delete(res));
+    log.info('stream', 'event streams', { count: eventClients.size, address: req.socket.remoteAddress });
+    req.on('close', () => {
+      if (eventClients.delete(res)) log.info('stream', 'event streams', { count: eventClients.size });
+    });
     if (!pingTimer) {
-      // Keeps proxies and phones from dropping an idle connection.
+      // A data event, not an SSE comment: the page cannot see comments, and
+      // it reconnects when pings stop coming (a silently dead connection
+      // would otherwise lose every alert while the video keeps playing).
       pingTimer = setInterval(() => {
-        for (const client of eventClients) client.write(': ping\n\n');
+        for (const client of eventClients) sendEvent(client, { kind: 'ping' });
       }, EVENT_PING_MS);
     }
     return undefined;

@@ -36,6 +36,9 @@
 - Локації: основна відкриває всю свою область; сповіщення Windows, коли ціль
   у заданому радіусі від будь-якої локації; за бажання мапа стежить за такою
   ціллю (завжди або лише під час трансляції) і повертається, коли ціль піде.
+- Демонстрація стеження: умовна ціль «ДЕМО» пролітає повз основну локацію,
+  а мапа поводиться, як зі справжньою; видно й на трансляції, сповіщення там
+  позначені «ДЕМО» й без звуку. Кнопки «?» в налаштуваннях пояснюють режими.
 - Мапа відкривається там, де ви її залишили.
 - Окремий радіус для кожної локації, тихі години (без звуку й вібрації, крім
   тривоги в районі основної локації), журнал подій.
@@ -193,6 +196,10 @@ of the other, with synchronized zoom and position.
   when a target is within a set radius of any location; optionally the map
   follows such a target (always, or only while streaming) and goes back when
   it leaves.
+- A follow demonstration: a made-up target marked "DEMO" flies past the
+  primary location and the map behaves as with a real one; also shown on
+  the stream, where its notifications are marked "DEMO" and silent. "?"
+  buttons in the settings explain the modes.
 - The map opens where you left it.
 - A radius per location, quiet hours (no sound or vibration, except an air
   alert at the primary location), an event log.

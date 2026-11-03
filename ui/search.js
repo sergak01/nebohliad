@@ -68,10 +68,12 @@ async function runSearch(text) {
   }
 }
 
+// No suggestions while typing (Nominatim's rules): say that Enter searches.
 input.addEventListener('input', () => {
   resultsFor = null;
-  setStatus('');
-  if (input.value.trim() === '') render(history, 'history');
+  const empty = input.value.trim() === '';
+  setStatus(empty ? '' : t('search.pressEnter'));
+  if (empty) render(history, 'history');
 });
 
 input.addEventListener('keydown', (event) => {

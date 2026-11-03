@@ -305,12 +305,14 @@ function installMapSync(sendView, sendReady) {
     map.on('move', () => {
       if (map !== mainMap()) return;
       placePin();
+      placeDemoTarget();
       placeLocations();
       if (!applying) sendView({ ...viewOf(map), user: Date.now() - inputAt < USER_MOVE_MS });
     });
     map.on('resize', () => {
       markMainMap();
       placePin();
+      placeDemoTarget();
       placeLocations();
     });
     const ready = () => sendReady();
@@ -416,6 +418,63 @@ function installMapSync(sendView, sendReady) {
     if (!pinEl || !map) return;
     const p = map.project(pin.center);
     pinEl.style.transform = `translate(${p.x}px, ${p.y}px)`;
+  }
+
+  // The follow demonstration's made-up target (demo.js), base page only:
+  // a violet UFO labelled "DEMO", unlike any site's target icon.
+  let demoTarget = null;
+  let demoEl = null;
+
+  // Built element by element: no innerHTML (a site's Trusted Types policy
+  // could refuse it).
+  function ufoIcon() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 32 22');
+    svg.setAttribute('width', '32');
+    svg.setAttribute('height', '22');
+    svg.style.cssText = 'position:absolute;margin:-11px 0 0 -16px;overflow:visible;filter:drop-shadow(0 0 1.5px rgba(0,0,0,.8)) drop-shadow(0 0 6px rgba(142,92,255,.9))';
+    const shape = (tag, attrs) => {
+      const el = document.createElementNS(ns, tag);
+      for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+      svg.appendChild(el);
+    };
+    shape('path', { d: 'M9 12.5a7 7 0 0 1 14 0z', fill: '#d9c9ff', stroke: '#fff', 'stroke-width': '1.5' }); // Dome.
+    shape('ellipse', { cx: '16', cy: '14', rx: '15', ry: '5', fill: '#8e5cff', stroke: '#fff', 'stroke-width': '1.5' }); // Saucer.
+    for (const cx of [8, 16, 24]) shape('circle', { cx: String(cx), cy: '14.5', r: '1.6', fill: '#fff' }); // Lights.
+    return svg;
+  }
+
+  function setDemoTarget(value) {
+    demoTarget = value?.center ? value : null;
+    const map = mainMap();
+    if (!demoTarget || !map) {
+      demoEl?.remove();
+      demoEl = null;
+      return;
+    }
+    if (!demoEl || !demoEl.isConnected) {
+      demoEl?.remove();
+      demoEl = document.createElement('div');
+      demoEl.style.cssText = `position:absolute;left:0;top:0;pointer-events:none;z-index:${PIN_Z}`;
+      const mark = ufoIcon();
+      const label = document.createElement('div');
+      label.style.cssText = [
+        'position:absolute', 'transform:translate(-50%,14px)', 'white-space:nowrap', 'padding:1px 6px', 'border-radius:4px',
+        'background:#8e5cff', 'color:#fff', 'font:700 11px "Segoe UI",system-ui,sans-serif',
+      ].join(';');
+      demoEl.append(mark, label);
+      map.getContainer().appendChild(demoEl);
+    }
+    demoEl.lastChild.textContent = demoTarget.label || 'DEMO';
+    placeDemoTarget();
+  }
+
+  function placeDemoTarget() {
+    const map = mainMap();
+    if (!demoEl || !demoTarget || !map) return;
+    const p = map.project(demoTarget.center);
+    demoEl.style.transform = `translate(${p.x}px, ${p.y}px)`;
   }
 
   // Targets-only mode: hide every style layer whose id does not match
@@ -826,7 +885,7 @@ function installMapSync(sendView, sendReady) {
     placeAlertAreas();
   }
 
-  return { setView, emitView, runCommand, setPin, setLayerFilter, setLocations, readTargets, setAttribution, readAirAlerts, readAlertAreas, setAlertAreas };
+  return { setView, emitView, runCommand, setPin, setDemoTarget, setLayerFilter, setLocations, readTargets, setAttribution, readAirAlerts, readAlertAreas, setAlertAreas };
 }
 
 // Executed in the page's main world before its scripts: caps how often
@@ -1017,6 +1076,7 @@ ipcRenderer.on('map-command', (_event, command) => mapSync.runCommand(command));
 // A temporary frame limit (main.js boostFrames, while the remote is used).
 ipcRenderer.on('frame-limit', (_event, fps) => frameLimit.setFrameLimit(fps));
 ipcRenderer.on('map-pin', (_event, pin) => mapSync.setPin(pin));
+ipcRenderer.on('map-demo-target', (_event, target) => mapSync.setDemoTarget(target));
 ipcRenderer.on('map-locations', (_event, data) => mapSync.setLocations(data));
 ipcRenderer.on('map-alert-areas', (_event, data) => mapSync.setAlertAreas(data));
 ipcRenderer.on('read-alert-areas', async (_event, known) => {

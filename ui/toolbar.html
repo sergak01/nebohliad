@@ -24,6 +24,12 @@
       #site-notice svg.i { color: var(--accent); }
       #site-notice.actionable { cursor: pointer; }
       #site-notice.actionable:hover { background: var(--hover); }
+      /* The follow demonstration (demo.js): what happens now; click stops it. */
+      #demo { height: 28px; gap: 7px; max-width: 58vw; border: 1px solid #8e5cff; background: rgba(142, 92, 255, 0.16); color: var(--fg); }
+      #demo:hover { background: rgba(142, 92, 255, 0.28); }
+      #demo .tag { padding: 2px 6px; border-radius: 4px; background: #8e5cff; color: #fff; font-weight: 700; font-size: 11px; }
+      #demo #demo-text { overflow: hidden; text-overflow: ellipsis; }
+      #demo .stop { width: 10px; height: 10px; border-radius: 2px; background: currentColor; flex: none; opacity: 0.8; }
       /* A newer version on GitHub: a dot on the menu button. */
       #menu { position: relative; }
       #menu.has-update::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
@@ -37,6 +43,7 @@
     <button class="tool" id="interact" data-i18n-title="toolbar.interact.title"><svg class="i"><use href="#i-hand" /></svg></button>
     <button class="tool" id="map-only" data-i18n-title="toolbar.mapOnly.title"><svg class="i"><use href="#i-maximize" /></svg></button>
     <div class="spacer"></div>
+    <button id="demo" hidden><span class="tag" data-i18n="demo.tag"></span><span id="demo-text"></span><span class="stop"></span></button>
     <button id="site-notice" hidden><svg class="i"><use href="#i-pause" /></svg><span id="site-notice-text"></span></button>
     <button id="nearby" hidden><svg class="i"><use href="#i-alert" /></svg><span id="nearby-count"></span></button>
     <button class="tool" id="home"><svg class="i"><use href="#i-home" /></svg></button>

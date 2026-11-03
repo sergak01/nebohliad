@@ -32,6 +32,16 @@
       button.star { color: var(--muted); }
       button.star.active { color: var(--accent); }
       #results li { padding: 7px 10px; cursor: pointer; border-radius: 6px; }
+      .results-head { display: flex; align-items: center; gap: 8px; }
+      .results-head .hint { flex: 1; }
+      /* Names are edited in place: a dashed line says the text can be changed. */
+      #locations input.name { cursor: text; border-bottom: 1px dashed var(--muted); border-radius: 6px 6px 0 0; }
+      #locations input.name:focus { border-bottom-style: solid; border-radius: 6px; }
+      /* "?" next to a setting: its explanation opens under the row. */
+      button.info { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--muted); font-size: 11px; font-weight: 700; vertical-align: 1px; margin-left: 6px; }
+      button.info:hover, button.info.open { border-color: var(--accent); color: var(--accent); background: transparent; }
+      .info-text { color: var(--muted); font-size: 12.5px; line-height: 1.5; padding: 0 0 10px; white-space: pre-line; user-select: text; }
+      #demo-button.running { border-color: #8e5cff; }
       #results li:hover { background: var(--hover); }
       .stream-links { display: flex; gap: 16px; align-items: flex-start; padding: 12px 0; }
       #stream-qr { width: 132px; height: 132px; background: #fff; padding: 6px; border-radius: 6px; flex: none; }
@@ -82,23 +92,23 @@
       <section class="page" data-page="maps">
         <h1 data-i18n="settings.maps"></h1>
         <div class="card">
-          <div class="row">
+          <div class="row" data-info="base">
             <div class="text"><span data-i18n="settings.maps.base"></span><span class="desc" data-i18n="settings.maps.base.desc"></span></div>
             <div class="seg" id="base"></div>
           </div>
-          <div class="row">
+          <div class="row" data-info="top">
             <div class="text"><span data-i18n="menu.topLayer"></span><span class="desc" data-i18n="settings.maps.top.desc"></span></div>
             <div class="seg">
               <button id="targets-only" data-i18n="toolbar.targetsOnly" data-i18n-title="toolbar.targetsOnly.title"></button>
               <button id="full-page" data-i18n="toolbar.fullPage" data-i18n-title="toolbar.fullPage.title"></button>
             </div>
           </div>
-          <div class="row">
+          <div class="row" data-info="opacity">
             <div class="text"><span data-i18n="menu.opacity"></span><span class="desc" data-i18n="settings.maps.opacity.desc"></span></div>
             <input id="opacity" type="range" min="10" max="100" step="10" />
             <span id="opacity-value" class="value"></span>
           </div>
-          <div class="row">
+          <div class="row" data-info="alertAreas">
             <div class="text"><span data-i18n="settings.maps.alertAreas"></span><span class="desc" data-i18n="settings.maps.alertAreas.desc"></span></div>
             <button class="switch" id="alert-areas" role="switch"></button>
           </div>
@@ -124,9 +134,13 @@
           <p class="hint" id="no-locations" data-i18n="menu.locations.none"></p>
           <div class="row">
             <input id="location-query" type="text" class="grow" autocomplete="off" spellcheck="false" data-i18n-placeholder="menu.locations.add" />
+            <button class="bordered" id="location-search" data-i18n="menu.locations.find" data-i18n-title="menu.locations.find.title"></button>
             <button class="bordered" id="add-center" data-i18n="menu.locations.addCenter" data-i18n-title="menu.locations.addCenter.title"></button>
           </div>
-          <div id="location-status" class="hint"></div>
+          <div class="results-head">
+            <div id="location-status" class="hint"></div>
+            <button class="bordered" id="results-close" data-i18n="menu.locations.closeResults" data-i18n-title="menu.locations.closeResults.title" hidden></button>
+          </div>
           <ul id="results"></ul>
           <p id="search-attribution" class="hint small" data-i18n="search.attribution"></p>
         </div>
@@ -135,25 +149,29 @@
             <div class="text"><span data-i18n="settings.alerts.enabled"></span><span class="desc" data-i18n="menu.alerts.hint"></span></div>
             <button class="switch" id="alerts-enabled" role="switch"></button>
           </div>
-          <div class="row">
+          <div class="row" data-info="radius">
             <div class="text"><span data-i18n="menu.alerts.radius"></span></div>
             <input id="radius" type="number" min="1" max="500" step="1" />
             <span data-i18n="menu.km"></span>
           </div>
-          <div class="row">
+          <div class="row" data-info="quiet">
             <div class="text"><span data-i18n="settings.quiet"></span><span class="desc" data-i18n="settings.quiet.desc"></span></div>
             <input id="quiet-from" type="time" />
             <span>–</span>
             <input id="quiet-to" type="time" />
             <button class="switch" id="quiet-enabled" role="switch"></button>
           </div>
-          <div class="row">
+          <div class="row" data-info="follow">
             <div class="text"><span data-i18n="settings.follow"></span><span class="desc" data-i18n="settings.follow.desc"></span></div>
             <div class="seg" id="follow">
               <button data-value="off" data-i18n="settings.follow.off"></button>
               <button data-value="stream" data-i18n="settings.follow.stream"></button>
               <button data-value="always" data-i18n="settings.follow.always"></button>
             </div>
+          </div>
+          <div class="row">
+            <div class="text"><span data-i18n="demo.title"></span><span class="desc" id="demo-status" data-i18n="demo.desc"></span></div>
+            <button class="bordered" id="demo-button"></button>
           </div>
           <div class="row">
             <div class="text"><span data-i18n="menu.alerts.test"></span><span class="desc" id="alerts-status" data-i18n="menu.about.notOfficial"></span></div>
@@ -217,14 +235,14 @@
               <button data-value="10">10</button>
             </div>
           </div>
-          <div class="row">
+          <div class="row" data-info="streamArea">
             <div class="text"><span data-i18n="stream.area"></span></div>
             <div class="seg" id="stream-area">
               <button data-value="full" data-i18n="stream.area.full"></button>
               <button data-value="pip" data-i18n="stream.area.pip" data-i18n-title="stream.area.pip.title"></button>
             </div>
           </div>
-          <div class="row">
+          <div class="row" data-info="streamLayers">
             <div class="text"><span data-i18n="stream.layers"></span></div>
             <div class="seg" id="stream-layers">
               <button data-value="both" data-i18n="stream.layers.both"></button>
@@ -234,7 +252,7 @@
           </div>
         </div>
         <div class="card">
-          <div class="row">
+          <div class="row" data-info="remote">
             <div class="text"><span data-i18n="stream.remote"></span><span class="desc" id="remote-status"></span></div>
             <button class="switch" id="remote-enabled" role="switch"></button>
           </div>

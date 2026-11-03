@@ -90,6 +90,8 @@ html, body {
 .toast.yellow { border-left-color: #f5b301; }
 .toast.warning { border-left-color: #ff9500; }
 .toast.clear { border-left-color: #34c759; }
+/* The app's follow demonstration: a dashed violet frame, the level color kept. */
+.toast.demo { border-top: 1px dashed #8e5cff; border-right: 1px dashed #8e5cff; border-bottom: 1px dashed #8e5cff; }
 .toast .title { font-weight: 600; font-size: 15px; }
 .toast .body { white-space: pre-line; font-size: 13px; color: #c9ccd3; margin-top: 2px; }
 .toast .time { font-size: 11px; color: #8b8f98; margin-top: 4px; }

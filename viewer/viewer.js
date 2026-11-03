@@ -467,7 +467,7 @@
 
   function showToast(event) {
     const el = document.createElement('div');
-    el.className = `toast ${event.level || ''}`;
+    el.className = `toast ${event.level || ''}${event.demo ? ' demo' : ''}`;
     const title = document.createElement('div');
     title.className = 'title';
     title.textContent = event.title;
@@ -585,6 +585,12 @@
     }
     if (event.kind === 'remote') {
       setRemoteAvailable(Boolean(event.enabled));
+      return;
+    }
+    // The app's follow demonstration: toasts only (marked), never a sound,
+    // vibration or browser notification, whatever the kind settings.
+    if (event.demo) {
+      if (prefs.toasts) showToast({ ...event, quiet: true });
       return;
     }
     if (kindPref[event.kind] === 'alert' && event.tag) {

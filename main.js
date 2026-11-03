@@ -19,6 +19,7 @@ const { setupMenu } = require('./menu-window');
 const { setupSettings } = require('./settings-window');
 const { setupShortcuts } = require('./shortcuts');
 const { setupFollow, MODES: FOLLOW_MODES } = require('./follow');
+const { setupDemo } = require('./demo');
 const { setupVersionCheck } = require('./version-check');
 const { setupSiteHealth } = require('./site-health');
 const { setupTray } = require('./tray');
@@ -123,6 +124,7 @@ let trayAnnounced = false;
 let homeShown = false; // The start-up view is set once.
 const HOME_DELAY_MS = 1500; // Let the base site finish restoring its own view.
 let follow = null;
+let demo = null; // The follow demonstration (demo.js).
 let versionCheck = null;
 let siteHealth = null;
 let viewSaveTimer = null;
@@ -252,7 +254,7 @@ ipcMain.on('map-view', (event, view) => {
   if (site) lastViews[site] = view;
   otherPage(event.sender)?.send('set-map-view', view);
   // The user moved either map (the top one with "interact" on).
-  if (site && view.user) follow?.userMoved();
+  if (site && view.user) userTookOver();
   if (site && site === settings?.base && startupViewSet) scheduleViewSave();
 });
 
@@ -261,7 +263,7 @@ ipcMain.on('map-view', (event, view) => {
 function saveMapView() {
   clearTimeout(viewSaveTimer);
   viewSaveTimer = null;
-  const view = follow?.isFollowing() ? follow.savedView() : lastViews[settings.base];
+  const view = follow?.isFollowing() ? follow.savedView() : demo?.savedView() || lastViews[settings.base];
   if (!view?.center) return;
   settings.mapView = { center: view.center, zoom: view.zoom, bearing: view.bearing || 0, pitch: view.pitch || 0 };
   saveSettings(settings);
@@ -436,10 +438,16 @@ ipcMain.on('ui:open-external', (_event, url) => {
   if (typeof url === 'string' && /^https:\/\//.test(url)) shell.openExternal(url);
 });
 
+// The user moved a map or went somewhere: following (and the demo's) lets go.
+function userTookOver() {
+  follow?.userMoved();
+  demo?.userMoved();
+}
+
 // Center the maps on a place ({ center, zoom } or { center, bbox }) and pin it.
 // Only the base map is moved; the sync carries the overlay map along.
 function goTo(place) {
-  follow?.userMoved();
+  userTookOver();
   restoreMain();
   const command = place.bbox ? { bbox: place.bbox } : { center: place.center, zoom: place.zoom };
   basePage().send('map-command', command);
@@ -453,7 +461,7 @@ function setPin(value) {
 
 // Move the maps without a pin: { bbox } or { center, zoom }.
 function showView(view) {
-  follow?.userMoved();
+  userTookOver();
   restoreMain();
   basePage().send('map-command', view);
 }
@@ -477,7 +485,7 @@ function remoteCommand(command) {
     if (location) mapCommand = { bbox: location.bbox };
   }
   if (!mapCommand) return false;
-  follow?.userMoved();
+  userTookOver();
   basePage().send('map-command', mapCommand);
   boostFrames();
   return true;
@@ -530,6 +538,7 @@ function pushState() {
   state.fpsLimit = settings.fpsLimit;
   state.shortcuts = shortcuts?.list() || [];
   state.follow = settings.follow;
+  state.demo = demo?.state() || null;
   state.updateCheck = settings.updateCheck;
   state.quiet = { ...settings.quiet };
   state.siteNotices = noticesFor((site) => site === settings.base || topShown);
@@ -579,6 +588,8 @@ function stateChanged() {
 
 // Called after every alerts round (every 5 s), changed or not.
 function nearbyChanged(list) {
+  // A real target in range ends the demonstration at once.
+  if (list.length && demo?.running()) demo.stop();
   follow?.update(alerts?.nearby() || []);
   if (JSON.stringify(list) === JSON.stringify(nearby)) return;
   nearby = list;
@@ -865,6 +876,18 @@ ipcMain.on('ui:toolbar-set', (_event, { key, value }) => {
   };
   setters[key]?.(value);
 });
+// The follow demonstration (Settings → Locations, the toolbar's stop
+// button): null when started or stopped, else why it cannot start.
+ipcMain.handle('ui:demo', (_event, on) => {
+  if (!on) {
+    demo.stop();
+    return null;
+  }
+  const why = demo.start(nearby.length > 0);
+  if (!why) restoreMain();
+  return why;
+});
+
 ipcMain.on('ui:toolbar-action', (_event, { name, data }) => {
   const actions = {
     search: () => search.toggle(),
@@ -1115,11 +1138,11 @@ const overlay = {
   // The stream's watchdog: a page capture keeps hanging.
   wakeHiddenWindows,
   reloadMaps: () => reloadPages('stream capture stalled'),
-  alertBanner: () => alerts?.banner() || null,
+  alertBanner: () => alerts?.banner() || demo?.banner() || null,
   // "ukrainealarm: <the site's notice>" lines for the stream's frames.
   noticeBanner: () =>
-    noticesFor(streamShows)
-      .map((n) => `${SITES[n.site]?.label || n.site}: ${noticeText(n)}`)
+    [demo?.strip(), ...noticesFor(streamShows).map((n) => `${SITES[n.site]?.label || n.site}: ${noticeText(n)}`)]
+      .filter(Boolean)
       .join('  ·  ') || null,
   // Events for LAN stream viewers (alerts.js → stream-server.js).
   streamEvent: (event) => stream?.broadcast(event),
@@ -1224,6 +1247,19 @@ if (!app.requestSingleInstanceLock()) {
       mapCommand: (command) => basePage().send('map-command', command),
       currentView: () => lastViews[settings.base] || null,
       streamWatched: () => Boolean(streamState.running && streamState.viewers > 0),
+    });
+    demo = setupDemo({
+      settings,
+      locations,
+      mapCommand: (command) => basePage().send('map-command', command),
+      currentView: () => lastViews[settings.base] || null,
+      // The marker lives on the base page only (the base may be swapped).
+      sendToBase: (channel, data) => {
+        basePage().send(channel, data);
+        overlayPage().send(channel, null);
+      },
+      streamEvent: (event) => stream?.broadcast(event),
+      changed: pushState,
     });
     menu = setupMenu(overlay);
     settingsWin = setupSettings(overlay, locations, alerts);

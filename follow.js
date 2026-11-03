@@ -19,7 +19,7 @@
 // map's animation runs at ~1 frame/s and its last moves came late.
 
 const { distanceKm } = require('./alerts');
-const log = require('./logger');
+const realLog = require('./logger');
 
 const MODES = ['off', 'stream', 'always'];
 const MARGIN = 1.1; // A little room around the circle.
@@ -45,9 +45,11 @@ function squareAround([lng, lat], halfKm) {
   ];
 }
 
-// overlay: { settings, mapCommand(command), currentView(), streamWatched() }.
+// overlay: { settings, mapCommand(command), currentView(), streamWatched(),
+// quiet (no log lines: the demo's own instance, demo.js) }.
 function setupFollow(overlay) {
   const { settings } = overlay;
+  const log = overlay.quiet ? { info() {} } : realLog;
   let following = false;
   let savedView = null; // The view before following started.
   let tookOver = false;

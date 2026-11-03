@@ -46,6 +46,19 @@ function render() {
   $('menu').title = updateReady ? `${t('toolbar.menu.title')} · ${t('update.badge')}` : t('toolbar.menu.title');
   $('home').title = t(state.hasPrimary ? 'toolbar.home.title' : 'toolbar.home.none');
   renderNearby();
+  renderDemo();
+}
+
+// The follow demonstration: its caption, and a click stops it.
+function renderDemo() {
+  const demo = state.demo;
+  $('demo').hidden = !demo?.caption;
+  if (!demo?.caption) return;
+  $('demo-text').textContent = demo.caption;
+  $('demo').title = demo.running ? `${demo.caption}
+
+${t('demo.stop.title')}` : demo.caption;
+  $('demo').querySelector('.stop').hidden = !demo.running;
 }
 
 function renderNearby() {
@@ -67,6 +80,7 @@ $('nearby').addEventListener('click', () => action('show-location', state.nearby
 $('search').addEventListener('click', () => action('search'));
 $('pip').addEventListener('click', () => action('pip'));
 $('site-notice').addEventListener('click', () => action('site-notice'));
+$('demo').addEventListener('click', () => state.demo?.running && overlay.invoke('ui:demo', false));
 $('menu').addEventListener('click', () => {
   const { x, y, width, height } = $('menu').getBoundingClientRect();
   action('menu', { x, y, width, height });

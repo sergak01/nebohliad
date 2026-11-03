@@ -25,6 +25,37 @@ for (const button of $('nav').querySelectorAll('button')) button.addEventListene
 showPage(new URLSearchParams(location.search).get('page') || 'maps');
 overlay.on('ui:settings-page', showPage);
 
+// "?" next to a setting (rows with data-info): its explanation, from
+// i18n "info.<key>", opens under the row.
+for (const row of document.querySelectorAll('.row[data-info]')) {
+  const key = row.dataset.info;
+  const label = row.querySelector('.text').firstElementChild;
+  const line = document.createElement('span');
+  label.replaceWith(line);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'info';
+  button.textContent = '?';
+  const text = document.createElement('div');
+  text.className = 'info-text';
+  text.dataset.infoText = key;
+  text.hidden = true;
+  button.addEventListener('click', () => {
+    text.hidden = !text.hidden;
+    button.classList.toggle('open', !text.hidden);
+  });
+  line.append(label, button);
+  row.after(text);
+}
+
+function renderInfo() {
+  for (const button of document.querySelectorAll('button.info')) {
+    button.title = t('info.button');
+    button.setAttribute('aria-label', t('info.button'));
+  }
+  for (const text of document.querySelectorAll('[data-info-text]')) text.textContent = t(`info.${text.dataset.infoText}`);
+}
+
 function setSwitch(id, on) {
   $(id).setAttribute('aria-checked', String(Boolean(on)));
 }
@@ -66,6 +97,8 @@ function render() {
   $('about-homepage').title = state.about.homepage;
   document.title = `${t('settings.title')} — ${t('app.name')}`;
   renderLocations();
+  renderDemo();
+  renderInfo();
   renderStream();
   renderShortcuts();
   renderUpdate();
@@ -182,13 +215,31 @@ function renderLocations() {
         () => overlay.send('ui:location-primary', loc.id),
         `star${loc.primary ? ' active' : ''}`,
       );
+      // The name is edited in place: click it (or ✎), Enter or leaving the
+      // field saves, Esc puts the old name back.
       const name = document.createElement('input');
       name.type = 'text';
+      name.className = 'name';
       name.value = loc.name;
       name.title = t('menu.locations.rename');
-      name.addEventListener('change', () => overlay.send('ui:location-rename', { id: loc.id, name: name.value }));
+      name.addEventListener('change', () => {
+        if (!name.value.trim()) {
+          name.value = loc.name;
+          return;
+        }
+        overlay.send('ui:location-rename', { id: loc.id, name: name.value });
+        setLocationStatus(t('menu.locations.renamed').replace('{name}', name.value.trim()));
+      });
       name.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') name.blur();
+        else if (event.key === 'Escape') {
+          name.value = loc.name;
+          name.blur();
+        }
+      });
+      const edit = iconButton('edit', t('menu.locations.renameButton'), () => {
+        name.focus();
+        name.select();
       });
       const region = document.createElement('span');
       region.className = 'region';
@@ -217,7 +268,7 @@ function renderLocations() {
       km.textContent = t('menu.km');
       const show = iconButton('target', t('menu.locations.show'), () => overlay.send('ui:location-show', loc.id));
       const remove = iconButton('trash', t('menu.locations.remove'), () => overlay.send('ui:location-remove', loc.id));
-      li.append(primary, name, region, radius, km, show, remove);
+      li.append(primary, name, edit, region, radius, km, show, remove);
       return li;
     }),
   );
@@ -519,6 +570,7 @@ async function addLocation(place) {
 let resultsQuery = '';
 
 function renderResults() {
+  $('results-close').hidden = results.length === 0;
   $('results').replaceChildren(
     ...results.map((place) => {
       const li = document.createElement('li');
@@ -529,10 +581,36 @@ function renderResults() {
   );
 }
 
-$('location-query').addEventListener('keydown', async (event) => {
-  if (event.key !== 'Enter') return;
+function closeResults() {
+  results = [];
+  resultsQuery = '';
+  renderResults();
+  setLocationStatus('');
+}
+
+// No suggestions while typing (Nominatim's rules): the search runs on Enter
+// or the button, and the hint says so.
+$('location-query').addEventListener('input', (event) => {
   const text = event.target.value.trim();
-  if (!text) return;
+  if (text && text !== resultsQuery) setLocationStatus(t('menu.locations.pressEnter'));
+  else if (!text && !results.length) setLocationStatus('');
+});
+$('location-query').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') searchLocation();
+  else if (event.key === 'Escape') {
+    if (results.length) closeResults();
+    else event.target.value = '';
+  }
+});
+$('location-search').addEventListener('click', searchLocation);
+$('results-close').addEventListener('click', closeResults);
+
+async function searchLocation() {
+  const text = $('location-query').value.trim();
+  if (!text) {
+    $('location-query').focus();
+    return;
+  }
   setLocationStatus(t('search.searching'));
   try {
     results = await overlay.invoke('ui:search-query', text);
@@ -544,7 +622,7 @@ $('location-query').addEventListener('keydown', async (event) => {
   } catch (error) {
     setLocationStatus(searchErrorText(error), true);
   }
-});
+}
 
 $('add-center').addEventListener('click', async () => {
   setLocationStatus(t('menu.locations.adding'));
@@ -554,6 +632,23 @@ $('add-center').addEventListener('click', async () => {
   } catch (error) {
     setLocationStatus(error.message, true);
   }
+});
+
+// --- Follow demonstration ---------------------------------------------------------
+
+let demoMessage = '';
+function renderDemo() {
+  const running = Boolean(state.demo?.running);
+  $('demo-button').textContent = t(running ? 'demo.stop' : 'demo.start');
+  $('demo-button').classList.toggle('running', running);
+  $('demo-button').disabled = !running && state.locations.length === 0;
+  $('demo-status').textContent = demoMessage || (state.locations.length ? t('demo.desc') : t('demo.why.no-location'));
+  $('demo-status').classList.toggle('error', Boolean(demoMessage));
+}
+$('demo-button').addEventListener('click', async () => {
+  const why = await overlay.invoke('ui:demo', !state.demo?.running);
+  demoMessage = why ? t(`demo.why.${why}`) : '';
+  renderDemo();
 });
 
 // --- Controls ------------------------------------------------------------------

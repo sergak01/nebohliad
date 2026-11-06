@@ -22,6 +22,7 @@ const { setupFollow, MODES: FOLLOW_MODES } = require('./follow');
 const { setupDemo } = require('./demo');
 const { setupVersionCheck } = require('./version-check');
 const { setupSiteHealth } = require('./site-health');
+const { setupConnectivity } = require('./connectivity');
 const { setupTray } = require('./tray');
 const { setupNotice } = require('./notice-window');
 const { setupStream, QUALITY, AREAS, LAYERS, FPS_CHOICES } = require('./stream-server');
@@ -127,6 +128,7 @@ let follow = null;
 let demo = null; // The follow demonstration (demo.js).
 let versionCheck = null;
 let siteHealth = null;
+let connectivity = null;
 let viewSaveTimer = null;
 // Views are saved only after the start-up view is set: before that the base
 // site reports its own restored view, which must not replace ours.
@@ -283,8 +285,8 @@ const siteNotices = {};
 // Our own notices next to the site's (site-health.js): its data stopped, or
 // a Cloudflare check waits for the user.
 const NOTICE_TEXT = {
-  uk: { stale: (m) => `дані не оновлюються ${m} хв`, challenge: 'просить пройти перевірку Cloudflare' },
-  en: { stale: (m) => `no new data for ${m} min`, challenge: 'asks for a Cloudflare check' },
+  uk: { stale: (m) => `дані не оновлюються ${m} хв`, challenge: 'просить пройти перевірку Cloudflare', offline: (at) => `Немає інтернету з ${at}` },
+  en: { stale: (m) => `no new data for ${m} min`, challenge: 'asks for a Cloudflare check', offline: (at) => `No internet since ${at}` },
 };
 
 // A newer release (version-check.js, release builds only, once per version).
@@ -303,21 +305,28 @@ function notifyUpdate(version) {
 }
 
 // [{ site, kind: 'site' | 'challenge' | 'stale', text?, minutes? }] for the
-// sites `shown` accepts.
+// sites `shown` accepts, after { kind: 'offline', since: 'HH:MM' } (no site)
+// while the internet is gone; "no new data" then says nothing new.
 function noticesFor(shown) {
   const issues = siteHealth?.status() || {};
+  const net = connectivity?.status();
   const list = [];
+  if (net && !net.online) {
+    const at = new Date(net.offlineSince || Date.now());
+    list.push({ kind: 'offline', since: `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}` });
+  }
   for (const site of SITE_IDS) {
     if (!shown(site)) continue;
     if (siteNotices[site]) list.push({ site, kind: 'site', text: siteNotices[site] });
     if (issues[site]?.challenge) list.push({ site, kind: 'challenge' });
-    if (issues[site]?.staleMinutes) list.push({ site, kind: 'stale', minutes: issues[site].staleMinutes });
+    if (issues[site]?.staleMinutes && net?.online !== false) list.push({ site, kind: 'stale', minutes: issues[site].staleMinutes });
   }
   return list;
 }
 
 function noticeText(notice) {
   const s = NOTICE_TEXT[settings.lang] || NOTICE_TEXT.uk;
+  if (notice.kind === 'offline') return s.offline(notice.since);
   if (notice.kind === 'stale') return s.stale(notice.minutes);
   if (notice.kind === 'challenge') return s.challenge;
   return notice.text;
@@ -1018,7 +1027,48 @@ function watchPage(siteId, contents) {
     clearTimeout(hungTimer);
     hungTimer = null;
   });
+  // A page load that failed (no internet when it was reloaded, ours or the
+  // site's own) leaves an empty document: Electron shows no error page, the
+  // base map turned black for 1.5 h on 2026-11-06 after our auto reload ran
+  // during an outage. Load it again, later each time, never while offline.
+  let loadRetries = 0;
+  let loadRetryTimer = null;
+  const retryLoad = () => {
+    loadRetryTimer = null;
+    if (contents.isDestroyed() || quitting) return;
+    if (connectivity?.offline()) {
+      loadRetryTimer = setTimeout(retryLoad, LOAD_RETRY_OFFLINE_MS);
+      return;
+    }
+    loadRetries++;
+    log.info('page', 'loading the page again after a failed load', { site: siteId, attempt: loadRetries });
+    siteHealth?.reset(siteId);
+    if (siteId === settings.base) keepViewAcrossReload();
+    ourReloadAt[siteId] = Date.now();
+    // A failure comes as did-fail-load (next retry); the promise rejects too.
+    contents.loadURL(SITES[siteId].url).catch(() => {});
+  };
+  contents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
+    // -3 (ERR_ABORTED): a newer navigation replaced this one.
+    if (!isMainFrame || code === -3 || quitting) return;
+    const wait = LOAD_RETRY_MS[Math.min(loadRetries, LOAD_RETRY_MS.length - 1)];
+    log.warn('page', `failed to load (${description || code}): trying again in ${Math.round(wait / 1000)} s`, { site: siteId, code });
+    clearTimeout(loadRetryTimer);
+    loadRetryTimer = setTimeout(retryLoad, wait);
+  });
+  contents.on('did-navigate', (_event, _url, httpResponseCode) => {
+    if (httpResponseCode <= 0) return;
+    if (loadRetries) log.info('page', 'loaded again', { site: siteId, attempts: loadRetries });
+    loadRetries = 0;
+    clearTimeout(loadRetryTimer);
+    loadRetryTimer = null;
+  });
 }
+
+// Waits before loading a page again after a failed load: 10 s, 30 s, then
+// every minute; while offline, look again every 5 s.
+const LOAD_RETRY_MS = [10_000, 30_000, 60_000];
+const LOAD_RETRY_OFFLINE_MS = 5000;
 
 // The map pages never keep the PC awake. ukrainealarm asks for a screen wake
 // lock while it is visible (since 2026-10), and our pages are always visible
@@ -1141,7 +1191,7 @@ const overlay = {
   alertBanner: () => alerts?.banner() || demo?.banner() || null,
   // "ukrainealarm: <the site's notice>" lines for the stream's frames.
   noticeBanner: () =>
-    [demo?.strip(), ...noticesFor(streamShows).map((n) => `${SITES[n.site]?.label || n.site}: ${noticeText(n)}`)]
+    [demo?.strip(), ...noticesFor(streamShows).map((n) => (n.site ? `${SITES[n.site]?.label || n.site}: ${noticeText(n)}` : noticeText(n)))]
       .filter(Boolean)
       .join('  ·  ') || null,
   // Events for LAN stream viewers (alerts.js → stream-server.js).
@@ -1237,10 +1287,17 @@ if (!app.requestSingleInstanceLock()) {
         // Not war-monitor: a reload can bring its Cloudflare check back.
         autoReload: { ukrainealarm: true },
         reload: (site) => pageFixers[site]?.('site data stopped'),
-        // The site's own "data paused" notice: nothing a reload would fix.
-        paused: (site) => Boolean(siteNotices[site]),
+        // The site's own "data paused" notice, or no internet: nothing a
+        // reload would fix (offline it would leave an empty page).
+        paused: (site) => Boolean(siteNotices[site]) || Boolean(connectivity?.offline()),
       },
     );
+    // After a long outage the pages keep old data until reloaded: reload
+    // them once the internet has been back for a while (connectivity.js).
+    connectivity = setupConnectivity({
+      changed: pushState,
+      back: (outageMs) => reloadPages(`internet back after ${Math.round(outageMs / 1000)} s offline`),
+    });
     follow = setupFollow({
       settings,
       // Straight to the page: following must not bring a hidden window back.

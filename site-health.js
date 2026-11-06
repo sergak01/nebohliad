@@ -57,7 +57,7 @@ function setupSiteHealth(sites, onChange, options = {}) {
   const lastAutoReload = {};
 
   for (const [site, { partition, url }] of Object.entries(sites)) {
-    state[site] = { last: 0, count: 0, gaps: [], stale: false, staleSince: 0, challenge: false, realtime: null };
+    state[site] = { last: 0, count: 0, gaps: [], fresh: false, stale: false, staleSince: 0, challenge: false, realtime: null };
     const domain = domainOf(url);
     session.fromPartition(partition).webRequest.onCompleted({ urls: ['*://*/*'] }, (details) => {
       if (details.resourceType !== 'xhr' || details.statusCode >= 400 || !ownRequest(details.url, domain)) return;
@@ -71,10 +71,13 @@ function setupSiteHealth(sites, onChange, options = {}) {
     const s = state[site];
     if (!s) return;
     const now = Date.now();
+    // The first sign after a reload: the time since the reload is no gap.
+    const fresh = s.fresh;
+    s.fresh = false;
     // Signs close together (a page load, one poll fetching several things)
     // count as one: the gap between polls is what matters.
-    if (s.last && now - s.last < BURST_MS) return;
-    if (s.last) {
+    if (!fresh && s.last && now - s.last < BURST_MS) return;
+    if (s.last && !fresh) {
       s.gaps.push(now - s.last);
       if (s.gaps.length > GAPS_KEPT) s.gaps.shift();
     }
@@ -142,11 +145,24 @@ function setupSiteHealth(sites, onChange, options = {}) {
     onChange();
   }
 
-  // After a reload the learned rhythm starts over.
+  // After a reload the rhythm is learned again, but a site whose rhythm was
+  // known keeps being judged by it, counted from the reload: a page that
+  // never came back (an empty document after a reload during an internet
+  // outage, 2026-11-06) gave no signs, so it was never "stale" again and
+  // never reloaded. Its first sign starts the new gaps.
   function reset(site) {
     const s = state[site];
     if (!s) return;
-    Object.assign(s, { last: 0, count: 0, gaps: [], stale: false, staleSince: 0, realtime: null });
+    const known = s.count >= LEARN_SIGNS && s.gaps.length > 0;
+    Object.assign(s, {
+      last: known ? Date.now() : 0,
+      count: known ? LEARN_SIGNS : 0,
+      gaps: known ? s.gaps : [],
+      fresh: known,
+      stale: false,
+      staleSince: 0,
+      realtime: null,
+    });
     onChange();
   }
 

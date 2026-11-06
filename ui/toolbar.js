@@ -26,19 +26,21 @@ function render() {
   $('map-only').classList.toggle('active', state.hudHidden);
   $('home').disabled = !state.hasPrimary;
   // The sites' own notices (their target data paused and the like) and ours
-  // (data stopped, a Cloudflare check waits).
+  // (no internet, data stopped, a Cloudflare check waits).
   const notices = state.siteNotices || [];
   $('site-notice').hidden = notices.length === 0;
   if (notices.length) {
     const label = (n) => {
-      const text = n.kind === 'site' ? n.text : t(`notice.${n.kind}`).replace('{m}', n.minutes ?? '');
-      return `${t(`site.${n.site}`)}: ${text}`;
+      const text = n.kind === 'site' ? n.text : t(`notice.${n.kind}`).replace('{m}', n.minutes ?? '').replace('{since}', n.since ?? '');
+      return n.site ? `${t(`site.${n.site}`)}: ${text}` : text;
     };
     const hint = [];
     if (notices.some((n) => n.kind === 'challenge')) hint.push(t('notice.challenge.click'));
     if (notices.some((n) => n.kind === 'stale')) hint.push(t('notice.stale.click'));
+    // Not a click target: said in the tooltip only.
+    const info = notices.some((n) => n.kind === 'offline') ? [t('notice.offline.hint')] : [];
     $('site-notice-text').textContent = notices.map(label).join(' · ');
-    $('site-notice').title = [t('toolbar.siteNotice.title'), '', ...notices.map(label), ...(hint.length ? ['', ...hint] : [])].join('\n');
+    $('site-notice').title = [t('toolbar.siteNotice.title'), '', ...notices.map(label), ...(hint.length || info.length ? ['', ...info, ...hint] : [])].join('\n');
     $('site-notice').classList.toggle('actionable', hint.length > 0);
   }
   const updateReady = Boolean(state.update?.attention);

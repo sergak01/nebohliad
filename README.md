@@ -64,10 +64,15 @@
 - Обидва сайти відкриваються як звичайні вебсторінки, кожен у своєму вікні,
   так само як у браузері. Немає API, скрейпінгу чи запитів до внутрішніх
   адрес сайтів; перевірку Cloudflare Turnstile користувач проходить сам.
+- map.ukrainealarm.com показує цілі лише після входу через Дія.Підпис і
+  просить прийняти його умови. І те, й інше користувач робить сам: Небогляд
+  лише підказує на панелі, що сайт чекає, і відкриває вікно сайту з QR-кодом
+  для застосунку Дія; умови сайтів він не приймає за користувача.
 - Усе, що застосунок змінює, відбувається лише на машині користувача: він
   ховає інтерфейс сайтів і рекламні банери, після підтвердження власного
-  безпекового попередження закриває схожі попередження сайтів, синхронізує
-  мапи і читає позиції цілей із мапи, яку вже показує сторінка.
+  безпекового попередження закриває схожі попередження сайтів (не їхні
+  умови), синхронізує мапи і читає позиції цілей із мапи, яку вже показує
+  сторінка.
 - Дані не стають точнішими, ніж їх показують сайти, нічого не записується і
   не ретранслюється.
 
@@ -224,10 +229,15 @@ of the other, with synchronized zoom and position.
 - Both sites open as normal web pages, each in its own window, just as in a
   browser. No API, no scraping, no requests to the sites' internal endpoints;
   the user passes the Cloudflare Turnstile check themselves.
+- map.ukrainealarm.com shows targets only after signing in with
+  Diia.Signature and asks the user to accept its terms. The user does both:
+  Nebohliad only says in the toolbar that the site is waiting and opens the
+  site's window with the QR code for the Diia app; it never accepts a site's
+  terms for the user.
 - Everything the app changes happens only on the user's machine: it hides the
   sites' interface and promo banners, closes the sites' similar safety notices
-  once its own notice is confirmed, synchronizes the maps, and reads target
-  positions from the map the page already shows.
+  (not their terms) once its own notice is confirmed, synchronizes the maps,
+  and reads target positions from the map the page already shows.
 - Data never gets more precise than the sites show it; nothing is recorded or
   rebroadcast.
 

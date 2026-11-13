@@ -281,12 +281,31 @@ function scheduleViewSave() {
 // a site that is on screen there. The site clears its notice by itself when
 // its data comes back (no reload needed).
 const siteNotices = {};
+// A sign-in the site wants before it shows targets (preload.js `signIn`,
+// ukrainealarm: Diia): site id -> the site's status line ('sign-in' when it
+// has none). Gone once signed in.
+const siteSignIn = {};
+// The site's terms waiting for the user (preload.js `terms`, ukrainealarm's
+// onboarding): site ids. Never accepted for the user.
+const siteTerms = new Set();
 
 // Our own notices next to the site's (site-health.js): its data stopped, or
 // a Cloudflare check waits for the user.
 const NOTICE_TEXT = {
-  uk: { stale: (m) => `дані не оновлюються ${m} хв`, challenge: 'просить пройти перевірку Cloudflare', offline: (at) => `Немає інтернету з ${at}` },
-  en: { stale: (m) => `no new data for ${m} min`, challenge: 'asks for a Cloudflare check', offline: (at) => `No internet since ${at}` },
+  uk: {
+    stale: (m) => `дані не оновлюються ${m} хв`,
+    challenge: 'просить пройти перевірку Cloudflare',
+    offline: (at) => `Немає інтернету з ${at}`,
+    signIn: 'цілі лише після входу через Дію',
+    terms: 'чекає, поки ви приймете його умови',
+  },
+  en: {
+    stale: (m) => `no new data for ${m} min`,
+    challenge: 'asks for a Cloudflare check',
+    offline: (at) => `No internet since ${at}`,
+    signIn: 'targets only after signing in with Diia',
+    terms: 'waits for you to accept its terms',
+  },
 };
 
 // A newer release (version-check.js, release builds only, once per version).
@@ -318,8 +337,11 @@ function noticesFor(shown) {
   for (const site of SITE_IDS) {
     if (!shown(site)) continue;
     if (siteNotices[site]) list.push({ site, kind: 'site', text: siteNotices[site] });
+    if (siteTerms.has(site)) list.push({ site, kind: 'terms' });
+    if (siteSignIn[site]) list.push({ site, kind: 'sign-in', text: siteSignIn[site] === 'sign-in' ? null : siteSignIn[site] });
     if (issues[site]?.challenge) list.push({ site, kind: 'challenge' });
-    if (issues[site]?.staleMinutes && net?.online !== false) list.push({ site, kind: 'stale', minutes: issues[site].staleMinutes });
+    // Without the sign-in the site sends no targets: no "no new data" then.
+    if (issues[site]?.staleMinutes && net?.online !== false && !siteSignIn[site]) list.push({ site, kind: 'stale', minutes: issues[site].staleMinutes });
   }
   return list;
 }
@@ -329,8 +351,30 @@ function noticeText(notice) {
   if (notice.kind === 'offline') return s.offline(notice.since);
   if (notice.kind === 'stale') return s.stale(notice.minutes);
   if (notice.kind === 'challenge') return s.challenge;
+  if (notice.kind === 'sign-in') return notice.text || s.signIn;
+  if (notice.kind === 'terms') return s.terms;
   return notice.text;
 }
+
+ipcMain.on('site-terms', (event, on) => {
+  const site = siteOf(event.sender);
+  if (!site || Boolean(on) === siteTerms.has(site)) return;
+  if (on) siteTerms.add(site);
+  else siteTerms.delete(site);
+  log.info('page', on ? 'the site waits for its terms to be accepted' : 'the site terms are no longer shown', { site });
+  pushState();
+});
+
+ipcMain.on('site-sign-in', (event, text) => {
+  const site = siteOf(event.sender);
+  if (!site) return;
+  const value = typeof text === 'string' && text ? text.slice(0, 300) : null;
+  if ((siteSignIn[site] || null) === value) return;
+  if (!value !== !siteSignIn[site]) log.info('page', value ? 'the site wants a sign-in to show targets' : 'signed in on the site', { site });
+  if (value) siteSignIn[site] = value;
+  else delete siteSignIn[site];
+  pushState();
+});
 
 ipcMain.on('site-challenge', (event, on) => {
   const site = siteOf(event.sender);
@@ -352,14 +396,41 @@ ipcMain.on('site-socket', (event, socket) => {
 // Settings → Maps "Data" rows ask for it every few seconds while shown.
 ipcMain.handle('ui:site-health', () => siteHealth?.status() || {});
 
-// A click on the toolbar's notice chip: bring the Cloudflare check within
-// reach (interact with the top layer when it is there), or reload the maps
-// when a site's data stopped.
+// A click on the toolbar's notice chip: bring the Cloudflare check or the
+// site's terms within reach (interact with the top layer when it is there),
+// reload the maps when a site's data stopped, or start the site's sign-in.
 function handleSiteNotices() {
   const shownNow = noticesFor((site) => site === settings.base || topShown);
   restoreMain();
-  if (shownNow.some((n) => n.kind === 'challenge' && n.site !== settings.base)) setClickThrough(false);
+  // On the top layer clicks pass through: interact to reach the check or the terms.
+  if (shownNow.some((n) => (n.kind === 'challenge' || n.kind === 'terms') && n.site !== settings.base)) setClickThrough(false);
   if (shownNow.some((n) => n.kind === 'stale')) reloadPages('site data stopped');
+  for (const n of shownNow) if (n.kind === 'sign-in') startSignIn(n.site);
+}
+
+// The site's sign-in window (ukrainealarm: Diia's QR page), per site id.
+const signInWindows = {};
+
+// The chip's click: bring the site's sign-in window forward, or press the
+// site's own sign-in button (hidden in map-only mode, unreachable on the
+// click-through top layer). As a user gesture, like a real click.
+function startSignIn(site) {
+  const open = signInWindows[site];
+  if (open && !open.isDestroyed()) {
+    open.show();
+    open.focus();
+    return;
+  }
+  const contents = pages[site]?.webContents;
+  if (!contents || contents.isDestroyed()) return;
+  log.info('page', 'starting the site sign-in from the toolbar', { site });
+  contents
+    .executeJavaScript(
+      `(() => { const b = [...document.querySelectorAll('[data-diia-authorize]')].find((el) => !el.disabled && !el.hidden); if (b) b.click(); return Boolean(b); })()`,
+      true,
+    )
+    .then((clicked) => clicked || log.warn('page', 'no sign-in button on the site', { site }))
+    .catch(() => {});
 }
 
 // The minutes in "no new data for N min" grow; refresh them while shown.
@@ -715,7 +786,7 @@ function reloadPages(reason = 'by the user') {
   for (const id of SITE_IDS) siteHealth?.reset(id);
   keepViewAcrossReload();
   for (const id of SITE_IDS) ourReloadAt[id] = Date.now();
-  for (const view of Object.values(pages)) view.webContents.reload();
+  for (const id of SITE_IDS) if (pages[id]) reloadSite(id, pages[id].webContents);
 }
 
 function keepViewAcrossReload() {
@@ -926,12 +997,85 @@ ipcMain.on('ui:toolbar-action', (_event, { name, data }) => {
 
 // --- Windows ---------------------------------------------------------------
 
-// Open popups in the system browser instead of new Electron windows.
-function routeExternalLinks(webContents) {
-  webContents.setWindowOpenHandler(({ url }) => {
+// Open popups in the system browser instead of new Electron windows, except
+// a map page's sign-in window.
+function routeExternalLinks(webContents, siteId) {
+  webContents.setWindowOpenHandler(({ url, frameName }) => {
+    if (siteId && frameName === SIGN_IN_FRAME && (url === 'about:blank' || /^https:\/\//.test(url))) return signInWindowOptions();
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
+}
+
+// ukrainealarm's Diia sign-in (2026-11): on a desktop the page opens
+// window.open('about:blank', 'diia-authorization'), sends it to Diia's page
+// with the QR code, polls its server until the phone confirms, then closes
+// that window and reloads itself. Denied (as all popups were), the page went
+// to Diia's page itself, and there it stayed: no way back but an app
+// restart. Electron gives such a window none of the opener's preload (checked
+// with Electron 44) but the opener's session, which the sign-in needs.
+const SIGN_IN_FRAME = 'diia-authorization';
+
+function signInWindowOptions() {
+  return {
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      parent: mainWindow,
+      width: 520,
+      height: 760,
+      minWidth: 360,
+      minHeight: 480,
+      autoHideMenuBar: true,
+      icon: path.join(__dirname, 'assets', 'icon.png'),
+      backgroundColor: '#ffffff',
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false },
+    },
+  };
+}
+
+function watchSignInWindow(siteId, win) {
+  const site = new URL(SITES[siteId].url).hostname;
+  const earlier = signInWindows[siteId];
+  if (earlier && !earlier.isDestroyed()) earlier.close();
+  signInWindows[siteId] = win;
+  log.info('page', 'sign-in window opened', { site: siteId });
+  routeExternalLinks(win.webContents);
+  // Back on the map site (a redirect after the sign-in): the map page sees the
+  // sign-in by itself (it polls), so the window has nothing more to show.
+  win.webContents.on('did-navigate', (_event, url) => {
+    if (hostOf(url) === site) win.close();
+  });
+  win.on('closed', () => {
+    if (signInWindows[siteId] === win) delete signInWindows[siteId];
+    log.info('page', 'sign-in window closed', { site: siteId });
+  });
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+// Map pages stay on their site: a page that tries to leave it in the main
+// frame (e.g. a sign-in that could not open its window) opens that address
+// in the system browser instead, where it can be closed.
+function keepOnSite(siteId, contents) {
+  const site = new URL(SITES[siteId].url).hostname;
+  contents.on('will-navigate', (event) => {
+    if (!event.isMainFrame || hostOf(event.url) === site) return;
+    event.preventDefault();
+    log.warn('page', 'the page tried to leave its site: opened in the browser instead', { site: siteId, host: hostOf(event.url) });
+    if (/^https?:\/\//.test(event.url)) shell.openExternal(event.url);
+  });
+}
+
+// Reloads a map page, or loads its site again if it is somewhere else.
+function reloadSite(siteId, contents) {
+  if (hostOf(contents.getURL()) === new URL(SITES[siteId].url).hostname) contents.reload();
+  else contents.loadURL(SITES[siteId].url).catch(() => {});
 }
 
 // A map page that crashed is reloaded; one that stops responding for
@@ -986,7 +1130,7 @@ function watchPage(siteId, contents) {
       // The base map comes back with the site's own view; keep ours.
       if (siteId === settings.base) keepViewAcrossReload();
       ourReloadAt[siteId] = Date.now();
-      contents.reload();
+      reloadSite(siteId, contents);
     }, wait);
   };
   pageFixers[siteId] = fix;
@@ -998,6 +1142,9 @@ function watchPage(siteId, contents) {
     if (!details.isMainFrame || details.isSameDocument) return;
     if (Date.now() - (ourReloadAt[siteId] || 0) < 15_000 || !contents.getURL()) return;
     log.warn('page', 'the page loaded again by itself', { site: siteId });
+    // E.g. ukrainealarm right after a Diia sign-in: keep the base map's view,
+    // as "Reload maps" does.
+    if (siteId === settings.base) keepViewAcrossReload();
     // A page loaded in a hidden window gets no frames until the window is
     // shown once (seen every 2 h with ukrainealarm): wake the windows
     // instead of waiting for the stream's capture to stall.
@@ -1086,7 +1233,11 @@ function createPage(siteId) {
   const site = SITES[siteId];
   const view = new WebContentsView({ webPreferences: pageWebPreferences(site.partition) });
   denyWakeLocks(view.webContents.session);
-  routeExternalLinks(view.webContents);
+  routeExternalLinks(view.webContents, siteId);
+  view.webContents.on('did-create-window', (win, details) => {
+    if (details.frameName === SIGN_IN_FRAME) watchSignInWindow(siteId, win);
+  });
+  keepOnSite(siteId, view.webContents);
   watchPage(siteId, view.webContents);
   view.webContents.on('preload-error', (_event, _preloadPath, error) => {
     log.error('page', `preload failed in ${site.url}`, String(error?.stack || error));
@@ -1287,9 +1438,10 @@ if (!app.requestSingleInstanceLock()) {
         // Not war-monitor: a reload can bring its Cloudflare check back.
         autoReload: { ukrainealarm: true },
         reload: (site) => pageFixers[site]?.('site data stopped'),
-        // The site's own "data paused" notice, or no internet: nothing a
-        // reload would fix (offline it would leave an empty page).
-        paused: (site) => Boolean(siteNotices[site]) || Boolean(connectivity?.offline()),
+        // The site's own "data paused" notice, its sign-in not done, or no
+        // internet: nothing a reload would fix (offline it would leave an
+        // empty page; mid sign-in it would drop the request).
+        paused: (site) => Boolean(siteNotices[site]) || Boolean(siteSignIn[site]) || Boolean(connectivity?.offline()),
       },
     );
     // After a long outage the pages keep old data until reloaded: reload

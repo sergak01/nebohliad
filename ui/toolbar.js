@@ -31,12 +31,14 @@ function render() {
   $('site-notice').hidden = notices.length === 0;
   if (notices.length) {
     const label = (n) => {
-      const text = n.kind === 'site' ? n.text : t(`notice.${n.kind}`).replace('{m}', n.minutes ?? '').replace('{since}', n.since ?? '');
+      const text = n.text || t(`notice.${n.kind}`).replace('{m}', n.minutes ?? '').replace('{since}', n.since ?? '');
       return n.site ? `${t(`site.${n.site}`)}: ${text}` : text;
     };
     const hint = [];
     if (notices.some((n) => n.kind === 'challenge')) hint.push(t('notice.challenge.click'));
     if (notices.some((n) => n.kind === 'stale')) hint.push(t('notice.stale.click'));
+    if (notices.some((n) => n.kind === 'sign-in')) hint.push(t('notice.sign-in.click'));
+    if (notices.some((n) => n.kind === 'terms')) hint.push(t('notice.terms.click'));
     // Not a click target: said in the tooltip only.
     const info = notices.some((n) => n.kind === 'offline') ? [t('notice.offline.hint')] : [];
     $('site-notice-text').textContent = notices.map(label).join(' · ');

@@ -14,6 +14,9 @@ const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 // --- Dialogs ---------------------------------------------------------------
 
+// ukrainealarm's onboarding / terms while it waits for the user.
+const ONBOARDING_SHOWN = '[data-detail-map-onboarding][aria-hidden="false"]';
+
 const SITE_RULES = {
   // click / acceptedStorage: the site's safety notices (only after the app's
   // own notice is confirmed). hide / localStorage: promos and UI state.
@@ -59,9 +62,15 @@ const SITE_RULES = {
     },
   },
   'map.ukrainealarm.com': {
-    // The onboarding states the map's limits (a safety notice too).
-    click: ['[data-detail-map-onboarding-accept]'],
-    acceptedStorage: { 'detailMapOnboardingAccepted:v2:main': 'true' },
+    // Nothing accepted for the user: the onboarding (key
+    // detailMapOnboardingAccepted:v3:main since 2026-11) is now also the
+    // site's terms ("do not collect or spread target data … including
+    // automatically"), which the user accepts on the site (decided
+    // 2026-11-13). It stays visible in map-only mode (modals) and on the top
+    // layer (overlayModals, with a toolbar chip that turns "interact" on).
+    click: [],
+    acceptedStorage: {},
+    terms: '[data-detail-map-onboarding]',
     hide: ['.bottom-banner'],
     localStorage: {},
     // Dialogs the user opens (region alert history, help). The history one is
@@ -71,10 +80,15 @@ const SITE_RULES = {
     // #detail-target-tooltip: the hover card of a target (appended to <body>,
     // so map-only mode would hide it); on the top page it shows with
     // "interact" on.
-    modals: ['dialog[open]', '#detail-target-tooltip:not([hidden])'],
-    overlayModals: ['#detail-target-tooltip:not([hidden])'],
+    modals: ['dialog[open]', '#detail-target-tooltip:not([hidden])', ONBOARDING_SHOWN],
+    overlayModals: ['#detail-target-tooltip:not([hidden])', ONBOARDING_SHOWN],
     // Shown while the site's target data is paused (map maintenance).
     notice: '#public-target-data-status',
+    // Targets only after signing in with Diia.Signature (since 2026-11). The
+    // section says whether the sign-in is on and done; its status line
+    // ("Авторизуйтеся через Дія.Підпис…", "Підтвердьте запит у застосунку
+    // Дія.", …) follows the flow.
+    signIn: { selector: 'section.diiaAuthorization', text: '[data-diia-status]' },
     // Targets are DOM markers inside the map container; no style layer is a
     // target except a possible heat layer.
     targetLayers: '(heat|target|cloud)',
@@ -168,10 +182,12 @@ function watchSiteNotice(rule) {
 
 if (rules?.notice) watchSiteNotice(rules.notice);
 
-// A Cloudflare Turnstile check on screen (war-monitor). Only read, never
-// touched. After a passed check the overlay element stays in the page with
-// aria-hidden="true", so an active check is a rendered overlay without it.
-function watchChallenge(selector) {
+// Something of the site's that waits for the user, on screen or not, sent to
+// main on change: a Cloudflare Turnstile check (war-monitor, 'site-challenge')
+// or the site's terms (ukrainealarm's onboarding, 'site-terms'). Only read,
+// never touched. Both stay in the page with aria-hidden="true" once done, so
+// "waiting" is a rendered element without it.
+function watchShown(selector, channel) {
   let last = false;
   const check = () => {
     const el = document.querySelector(selector);
@@ -180,7 +196,7 @@ function watchChallenge(selector) {
     );
     if (on === last) return;
     last = on;
-    ipcRenderer.send('site-challenge', on);
+    ipcRenderer.send(channel, on);
   };
   const start = () => {
     check();
@@ -190,7 +206,37 @@ function watchChallenge(selector) {
   else start();
 }
 
-if (rules?.challenge) watchChallenge(rules.challenge);
+if (rules?.challenge) watchShown(rules.challenge, 'site-challenge');
+if (rules?.terms) watchShown(rules.terms, 'site-terms');
+
+// A sign-in the site needs before it shows targets (ukrainealarm: Diia).
+// Map-only mode hides its button and status, so the status goes to main
+// (toolbar chip, stream strip); null once signed in or when the site has no
+// sign-in. Only the site's own markup is read.
+function watchSignIn(rule) {
+  let last;
+  const read = () => {
+    const el = document.querySelector(rule.selector);
+    if (!el || el.dataset.enabled !== 'true' || el.dataset.authorized === 'true') return null;
+    // textContent: the desktop / mobile copies are display:none by turns.
+    const status = [...document.querySelectorAll(rule.text)].map((s) => s.textContent.replace(/\s+/g, ' ').trim()).find(Boolean);
+    return status || 'sign-in';
+  };
+  const check = () => {
+    const text = read();
+    if (text === last) return;
+    last = text;
+    ipcRenderer.send('site-sign-in', text);
+  };
+  const start = () => {
+    check();
+    setInterval(check, SITE_NOTICE_MS);
+  };
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+}
+
+if (rules?.signIn) watchSignIn(rules.signIn);
 
 // --- Map view sync -------------------------------------------------------
 

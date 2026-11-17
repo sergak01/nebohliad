@@ -334,11 +334,13 @@ function setupStream(overlay, getPipArea) {
 
   let compositor = null;
   let compositorReady = null;
+  let compositorEpoch = 0;
   let nextRequest = 1;
   const pending = new Map(); // id -> { resolve, reject }
 
   function ensureCompositor() {
     if (compositor && !compositor.isDestroyed()) return compositorReady;
+    compositorEpoch++; // A new window has kept no layers.
     compositor = new BrowserWindow({
       show: false,
       width: 320,
@@ -551,6 +553,7 @@ function setupStream(overlay, getPipArea) {
     return { reset: false };
   }
 
+  // The pages to capture now (a layer kept from the frame before is not).
   async function capturePages(area, wantBase, wantTop) {
     try {
       const pages = await Promise.all([
@@ -579,7 +582,49 @@ function setupStream(overlay, getPipArea) {
     }
   }
 
-  async function captureFrame(needJpeg) {
+  // A layer is captured and encoded again only when its page may show
+  // something new (overlay.pagePaintedAt, from the pages' own signs); else the
+  // compositor draws the one it kept. Measured 2026-11-17 (1895×1092, both
+  // layers, 5 fps): the top layer's PNG took 21.5 ms and the base's JPEG
+  // 12.9 ms of main's thread per frame, 17.6 % of a core, for a top page that
+  // mostly stood still. A capture counts for a page once it was started
+  // SETTLE_MS after the page's last sign (a sign can come before the frame is
+  // on screen); every REFRESH_MS a layer is captured anyway, so a change with
+  // no sign shows up that late at worst.
+  const SETTLE_MS = 500;
+  const REFRESH_MS = 2000;
+  const kept = { bottom: null, top: null }; // What the compositor holds: { page, key, at, epoch }.
+  const frameStats = { frames: 0, base: 0, top: 0 };
+
+  function forgetKept() {
+    kept.bottom = null;
+    kept.top = null;
+  }
+
+  function stillKept(layer, page, key, now) {
+    const last = kept[layer];
+    if (!last || last.page !== page || last.key !== key || last.epoch !== compositorEpoch || now - last.at >= REFRESH_MS) return false;
+    const painted = overlay.pagePaintedAt(page);
+    return painted !== null && last.at - painted >= SETTLE_MS;
+  }
+
+  // For the log: how many frames, and how many captures they needed.
+  setInterval(() => {
+    if (frameStats.frames) log.info('stream', 'frames in the last hour', { ...frameStats });
+    frameStats.frames = frameStats.base = frameStats.top = 0;
+  }, 3600_000).unref?.();
+
+  // One frame at a time (the loop and a snapshot request may overlap): the
+  // kept layers are shared.
+  let frameChain = Promise.resolve();
+
+  function captureFrame(needJpeg) {
+    const frame = frameChain.then(() => composeFrame(needJpeg));
+    frameChain = frame.catch(() => {});
+    return frame;
+  }
+
+  async function composeFrame(needJpeg) {
     lastFrameAt = Date.now();
     await ensureCompositor();
     const area = captureArea();
@@ -588,7 +633,27 @@ function setupStream(overlay, getPipArea) {
     // The top layer as the user sees it: only if it is shown, unless the
     // stream asks for the top layer alone.
     const wantTop = layers === 'top' || (layers === 'both' && overlay.topShown);
-    const [bottom, top] = await capturePages(area, wantBase, wantTop);
+    const basePage = overlay.basePage;
+    const topPage = overlay.overlayPage;
+    const { width, height } = overlay.mapBounds();
+    const key = JSON.stringify([area || null, width, height]);
+    const startedAt = Date.now();
+    const keepBottom = wantBase && stillKept('bottom', basePage, key, startedAt);
+    const keepTop = wantTop && stillKept('top', topPage, key, startedAt);
+    let bottom = null;
+    let top = null;
+    try {
+      [bottom, top] = await capturePages(area, wantBase && !keepBottom, wantTop && !keepTop);
+    } catch (captureError) {
+      forgetKept();
+      throw captureError;
+    }
+    const epoch = compositorEpoch;
+    if (!keepBottom) kept.bottom = wantBase ? { page: basePage, key, at: startedAt, epoch } : null;
+    if (!keepTop) kept.top = wantTop ? { page: topPage, key, at: startedAt, epoch } : null;
+    frameStats.frames++;
+    if (bottom) frameStats.base++;
+    if (top) frameStats.top++;
     const q = quality();
     frameSeq = (frameSeq + 1) & 255;
     return request(
@@ -596,7 +661,7 @@ function setupStream(overlay, getPipArea) {
       {
         // The base page shows the attribution in its bottom-right corner;
         // draw our own only when that corner is not in the frame.
-        attribution: !(bottom && !area),
+        attribution: !(wantBase && !area),
         banner: overlay.alertBanner(),
         notice: overlay.noticeBanner(),
         bottom: bottom ? bottom.toJPEG(90) : null,
@@ -604,6 +669,9 @@ function setupStream(overlay, getPipArea) {
         // map at the user's opacity (preload.js topLayerCss), so it is
         // blended as it is (alone: on a dark background).
         top: top ? top.toPNG() : null,
+        // The layer as in the frame before (no bytes sent).
+        keepBottom,
+        keepTop,
         opacity: 1,
         maxWidth: q.maxWidth,
         quality: q.jpeg,
@@ -611,10 +679,17 @@ function setupStream(overlay, getPipArea) {
         needJpeg,
       },
       5000,
-    ).then((jpeg) => {
-      lastComposedAt = Date.now();
-      return jpeg;
-    });
+    ).then(
+      (jpeg) => {
+        lastComposedAt = Date.now();
+        return jpeg;
+      },
+      (composeError) => {
+        // What the compositor holds now is unknown: send both again.
+        forgetKept();
+        throw composeError;
+      },
+    );
   }
 
   // Frames per second: the stream's own choice, else the quality's; never

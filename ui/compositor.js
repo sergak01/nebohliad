@@ -99,9 +99,32 @@ function drawClock(scale, bottom) {
   ctx.fillText(text, pad, bottom - height / 2);
 }
 
-overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, attribution, banner, notice, seq, needJpeg }) => {
+// The layers of the frame before. Main sends a page's capture again only when
+// the page may have changed (stream-server.js); otherwise it asks to keep the
+// layer, and it is drawn from here.
+const kept = { bottom: null, top: null };
+
+// bytes: a new capture (or null: no such layer now); keep: the one held.
+async function layerOf(name, bytes, keep) {
+  if (keep) {
+    if (!kept[name]) throw new Error(`no kept ${name} layer`);
+    return kept[name];
+  }
+  const bitmap = await decode(bytes);
+  kept[name]?.close();
+  kept[name] = bitmap;
+  return bitmap;
+}
+
+// One frame at a time: frames share the canvas and the kept layers.
+let composing = Promise.resolve();
+overlay.on('ui:compose', (frame) => {
+  composing = composing.then(() => compose(frame));
+});
+
+async function compose({ id, bottom, top, keepBottom, keepTop, opacity, maxWidth, quality, attribution, banner, notice, seq, needJpeg }) {
   try {
-    const [base, layer] = await Promise.all([decode(bottom), decode(top)]);
+    const [base, layer] = await Promise.all([layerOf('bottom', bottom, keepBottom), layerOf('top', top, keepTop)]);
     const source = base || layer;
     const scale = Math.min(1, maxWidth / source.width);
     // Even sizes: video encoders need them.
@@ -126,8 +149,6 @@ overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, a
     if (notice) drawNotice(notice, uiScale, banner ? Math.round(30 * uiScale) : 0);
     const cell = drawMarker(seq || 0);
     drawClock(uiScale, height - cell);
-    base?.close();
-    layer?.close();
     if (peers.size) {
       track.requestFrame();
       framesRequested++;
@@ -146,7 +167,7 @@ overlay.on('ui:compose', async ({ id, bottom, top, opacity, maxWidth, quality, a
   } catch (error) {
     overlay.send('ui:composed', { id, error: error.message });
   }
-});
+}
 
 // --- WebRTC sender -------------------------------------------------------------
 

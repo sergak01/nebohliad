@@ -174,7 +174,20 @@ function mapBounds() {
 
 let realignTimer = null;
 
+// When each map page last showed something new: its own signs (preload.js
+// 'page-painted': the map drew, something visible changed, the user touched
+// it) and ours (a new layout, a load). The LAN stream captures and encodes a
+// page again only after that (stream-server.js), not on every frame.
+const pagePaintedAt = {}; // site id -> ms
+
+function pagePainted(site) {
+  if (site) pagePaintedAt[site] = Date.now();
+}
+
+ipcMain.on('page-painted', (event) => pagePainted(siteOf(event.sender)));
+
 function layout() {
+  for (const id of SITE_IDS) pagePainted(id);
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized()) return;
   const { width, height } = mainWindow.getContentBounds();
   const mapHeight = Math.max(1, height - TOOLBAR_HEIGHT);
@@ -1096,6 +1109,17 @@ ipcMain.on('page-visibility', (event, hidden) => {
   if (site) log.info('page', hidden ? 'the page is hidden (the site is told it is visible)' : 'the page is visible again', { site });
 });
 
+// Endless animations running on elements map-only mode hides (names only):
+// they keep a page rendering at the display rate for nothing. preload.js
+// pauses the known ones (SITE_RULES `still`); a new one shows up here.
+ipcMain.on('page-hidden-animations', (event, names) => {
+  const site = siteOf(event.sender);
+  if (!site || !Array.isArray(names)) return;
+  const list = names.filter((name) => typeof name === 'string').slice(0, 5).map((name) => name.slice(0, 60));
+  if (list.length) log.warn('page', 'endless animations run on hidden elements', { site, names: list });
+  else log.info('page', 'no animations on hidden elements any more', { site });
+});
+
 // ukrainealarm: targets on the map vs the threat count the site shows.
 const markerWatch = {};
 ipcMain.on('page-targets', (event, report) => {
@@ -1140,6 +1164,7 @@ function watchPage(siteId, contents) {
   // or with document.hidden.
   contents.on('did-start-navigation', (details) => {
     if (!details.isMainFrame || details.isSameDocument) return;
+    pagePainted(siteId); // Whoever started it, the page shows something else now.
     if (Date.now() - (ourReloadAt[siteId] || 0) < 15_000 || !contents.getURL()) return;
     log.warn('page', 'the page loaded again by itself', { site: siteId });
     // E.g. ukrainealarm right after a Diia sign-in: keep the base map's view,
@@ -1155,6 +1180,7 @@ function watchPage(siteId, contents) {
     });
   });
   contents.on('render-process-gone', (_event, details) => {
+    pagePainted(siteId);
     if (details.reason === 'clean-exit' || quitting) return;
     fix(`renderer gone (${details.reason})`);
   });
@@ -1330,6 +1356,8 @@ const overlay = {
   uiWebPreferences,
   sendToPages,
   siteOf,
+  // When a map page last showed something new (ms), null if not known.
+  pagePaintedAt: (contents) => pagePaintedAt[siteOf(contents)] ?? null,
   siteLabel: (id) => SITES[id]?.label || id,
   // Center of the base map, from the last view it reported.
   baseCenter: () => lastViews[settings.base]?.center || null,

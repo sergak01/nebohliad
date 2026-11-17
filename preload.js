@@ -34,6 +34,7 @@ const SITE_RULES = {
     // when a check needs them.
     challenge: '.ts-overlay',
     overlayModals: ['#wm-details:not([hidden])'],
+    still: [],
     // Shown while the site has no data ("Дані тимчасово недоступні", a
     // technical pause); its title only: the box also has a ticking clock.
     notice: { selector: '#wm-crit', text: '.crit-title' },
@@ -82,6 +83,12 @@ const SITE_RULES = {
     // "interact" on.
     modals: ['dialog[open]', '#detail-target-tooltip:not([hidden])', ONBOARDING_SHOWN],
     overlayModals: ['#detail-target-tooltip:not([hidden])', ONBOARDING_SHOWN],
+    // Animations that map-only mode hides but that run on: paused while
+    // hidden. The radar sweep (an endless SVG transform animation in the
+    // site's header) made the page restyle and lay itself out ~58 times a
+    // second whatever the frame limit (measured 2026-11-17: 16 % of a core
+    // in the browser's own rendering, next to 4 % of script).
+    still: ['.mapRadarTrigger__sweep'],
     // Shown while the site's target data is paused (map maintenance).
     notice: '#public-target-data-status',
     // Targets only after signing in with Diia.Signature (since 2026-11). The
@@ -187,6 +194,10 @@ if (rules?.notice) watchSiteNotice(rules.notice);
 // or the site's terms (ukrainealarm's onboarding, 'site-terms'). Only read,
 // never touched. Both stay in the page with aria-hidden="true" once done, so
 // "waiting" is a rendered element without it.
+// A Cloudflare check on screen draws in its own frame, where nothing can be
+// watched: while it shows, the page counts as changing (see "Paint signal").
+let challengeShown = false;
+
 function watchShown(selector, channel) {
   let last = false;
   const check = () => {
@@ -196,6 +207,7 @@ function watchShown(selector, channel) {
     );
     if (on === last) return;
     last = on;
+    if (channel === 'site-challenge') challengeShown = on;
     ipcRenderer.send(channel, on);
   };
   const start = () => {
@@ -243,7 +255,7 @@ if (rules?.signIn) watchSignIn(rules.signIn);
 // Executed in the page's main world. MapLibre's Map constructor assigns
 // `this._mapId`, so a one-shot setter on Object.prototype catches every map
 // instance, whether maplibre-gl is a global or bundled into the page.
-function installMapSync(sendView, sendReady) {
+function installMapSync(sendView, sendReady, sendPainted) {
   // Our marks on the map (location rings and labels, the search pin) sit
   // just above the map canvas and below anything else the site draws over
   // the map: its cards, dialogs and notices (war-monitor's data box is
@@ -251,6 +263,8 @@ function installMapSync(sendView, sendReady) {
   const LOCATIONS_Z = 1;
   const PIN_Z = 2;
   const USER_MOVE_MS = 1500; // Moves this soon after input are the user's (incl. inertia).
+  const RENDER_NOTE_MS = 50;
+  let renderNotedAt = 0;
   const maps = [];
   let applying = false;
 
@@ -332,6 +346,15 @@ function installMapSync(sendView, sendReady) {
       if (alertAreas && map === mainMap() && !map.getSource(AREA_SOURCE)) placeAlertAreas();
     });
     map.on('load', scheduleLayerFilter);
+    // The map drew a frame: what the page shows may have changed (see "Paint
+    // signal" below). Told at most every RENDER_NOTE_MS; a burst's later
+    // frames fall well inside the time the stream waits after a signal.
+    map.on('render', () => {
+      const now = performance.now();
+      if (now - renderNotedAt < RENDER_NOTE_MS) return;
+      renderNotedAt = now;
+      sendPainted();
+    });
     // `user`: the move came right after the user's input on this map (a
     // drag, wheel, touch, double-click, keys, MapLibre's zoom buttons); moves
     // made by code (our commands, the site's own) do not. MapLibre's own
@@ -1113,6 +1136,7 @@ const mapSync = contextBridge.executeInMainWorld({
   args: [
     (view) => ipcRenderer.send('map-view', view),
     () => ipcRenderer.send('map-ready'),
+    () => pagePainted(),
   ],
 });
 
@@ -1156,6 +1180,124 @@ ipcRenderer.on('read-targets', async () => {
 // --- Page modes ------------------------------------------------------------
 
 const MAIN_MAP = '[data-nebohliad-main]';
+
+// --- Paint signal ------------------------------------------------------------
+
+// Tells main ('page-painted') that what this page shows may have changed, so
+// the LAN stream captures and encodes a page again only then (stream-server.js;
+// each frame used to cost a PNG and a JPEG of the whole page on main's
+// thread, changed or not). Signs, never contents:
+//  - the main map drew a frame (MapLibre 'render', from the page's world);
+//  - something changed in the DOM inside the main map or in a popup that
+//    map-only mode keeps visible (markers, cards, our own marks);
+//  - a CSS animation or transition runs on something visible;
+//  - the user touched the page;
+//  - a Cloudflare check is on screen (it draws in its own frame);
+//  - the page mode changed, or the page just loaded.
+// Only map-only mode is judged this closely: with the site's interface shown
+// the page always counts as changing. A missed sign costs little: the stream
+// takes a fresh capture every couple of seconds anyway.
+const PAINT_SEND_MS = 100; // At most this often.
+const PAINT_TICK_MS = 250;
+const ANIMATION_WATCH_MS = 3000;
+let mapOnlyNow = false;
+let paintSentAt = 0;
+let paintTimer = null;
+
+function sendPainted() {
+  paintTimer = null;
+  paintSentAt = Date.now();
+  ipcRenderer.send('page-painted');
+}
+
+// The first sign goes at once; more within PAINT_SEND_MS make one later one.
+function pagePainted() {
+  if (paintTimer) return;
+  const wait = paintSentAt + PAINT_SEND_MS - Date.now();
+  if (wait <= 0) sendPainted();
+  else paintTimer = setTimeout(sendPainted, wait);
+}
+
+// What map-only mode shows besides the main map.
+const SHOWN_BESIDE_MAP = [...new Set([...(rules?.modals || []), ...(rules?.overlayModals || []), rules?.challenge, '.ts-overlay'].filter(Boolean))].join(', ');
+
+function shownInMapOnly(node) {
+  const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  return Boolean(el && (el.closest(MAIN_MAP) || el.closest(SHOWN_BESIDE_MAP)));
+}
+
+new MutationObserver((records) => {
+  if (!mapOnlyNow) return; // The tick below reports such a page all the time.
+  for (const record of records) {
+    if (shownInMapOnly(record.target) || [...record.addedNodes].some(shownInMapOnly)) {
+      pagePainted();
+      return;
+    }
+  }
+}).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+
+// Animations are looked at for a while after one starts or repeats, and for
+// as long as a visible one runs.
+let animationWatchUntil = Date.now() + ANIMATION_WATCH_MS;
+const watchAnimations = () => {
+  animationWatchUntil = Date.now() + ANIMATION_WATCH_MS;
+};
+for (const type of ['transitionrun', 'animationstart', 'animationiteration']) window.addEventListener(type, watchAnimations, true);
+
+function visibleAnimationRuns() {
+  return document.getAnimations().some((animation) => {
+    if (animation.playState !== 'running') return false;
+    const target = animation.effect?.target;
+    return !target || getComputedStyle(target).visibility !== 'hidden';
+  });
+}
+
+setInterval(() => {
+  if (!mapOnlyNow || challengeShown) {
+    pagePainted();
+  } else if (Date.now() < animationWatchUntil && visibleAnimationRuns()) {
+    watchAnimations();
+    pagePainted();
+  }
+}, PAINT_TICK_MS);
+
+for (const type of ['wheel', 'pointerdown', 'pointermove', 'keydown', 'scroll']) {
+  window.addEventListener(type, pagePainted, { capture: true, passive: true });
+}
+
+// Map only: the site's animations in `still` are paused while hidden.
+function stillCss(selectors) {
+  return selectors?.length ? `${selectors.join(', ')} { animation-play-state: paused !important; }` : '';
+}
+
+// For main's log: endless animations that run on elements nobody sees (names
+// only, on change). A site that renames what `still` pauses shows up here.
+const HIDDEN_ANIMATIONS_MS = 60_000;
+let hiddenAnimationsSent = '[]';
+
+function hiddenAnimations() {
+  const names = new Set();
+  for (const animation of document.getAnimations()) {
+    const target = animation.effect?.target;
+    if (animation.playState !== 'running' || !target) continue;
+    if (animation.effect.getComputedTiming().iterations !== Infinity) continue;
+    if (getComputedStyle(target).visibility === 'hidden') names.add(animation.animationName || 'animation');
+  }
+  return [...names].sort().slice(0, 5);
+}
+
+setInterval(() => {
+  let names = [];
+  try {
+    names = hiddenAnimations();
+  } catch {
+    return;
+  }
+  const text = JSON.stringify(names);
+  if (text === hiddenAnimationsSent) return;
+  hiddenAnimationsSent = text;
+  ipcRenderer.send('page-hidden-animations', names);
+}, HIDDEN_ANIMATIONS_MS);
 
 // Map only (HUD hidden, and always in targets-only mode): everything but the
 // main map is invisible, and the map fills the page. The view sync works from
@@ -1250,8 +1392,11 @@ function setPageMode(mode, live) {
   const targetsOnly = Boolean(mode.targetsOnly && rules?.targetLayers);
   // Each step on its own: a failure in one (a site changed) must not leave
   // the others (attribution, safety, theme…) unapplied.
+  const mapOnly = Boolean(mode.hudHidden || targetsOnly);
+  mapOnlyNow = mapOnly;
   const steps = [
-    () => toggleCss('mapOnly', MAP_ONLY_CSS, mode.hudHidden || targetsOnly),
+    () => toggleCss('mapOnly', MAP_ONLY_CSS, mapOnly),
+    () => toggleCss('still', stillCss(rules?.still), Boolean(mapOnly && rules?.still?.length)),
     () => toggleCss('modals', modalsCss(rules?.modals), Boolean(mode.isBase && mode.hudHidden && rules?.modals?.length)),
     () => toggleCss('overlayModals', modalsCss(rules?.overlayModals), Boolean(!mode.isBase && (mode.hudHidden || targetsOnly) && rules?.overlayModals?.length)),
     () => toggleCss('transparent', TRANSPARENT_CSS, targetsOnly),
@@ -1270,6 +1415,7 @@ function setPageMode(mode, live) {
       console.warn(`[nebohliad] page mode: ${error.message}`);
     }
   }
+  pagePainted(); // A new mode shows the page differently.
 }
 
 ipcRenderer.on('page-mode', (_event, mode) => setPageMode(mode, document.readyState !== 'loading'));

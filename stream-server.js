@@ -487,7 +487,8 @@ function setupStream(overlay, getPipArea) {
 
   ipcMain.on('ui:compositor-health', (event, report) => {
     if (!compositor || compositor.isDestroyed() || event.sender !== compositor.webContents) return;
-    if (report?.stalled && resetVideo('encoder stalled')) noteProblem('encoder-stalled', 'video-restarted');
+    // contextLost: its WebGL context did not come back (compositor.js).
+    if (report?.stalled && resetVideo(report.contextLost ? 'the compositor lost its drawing context' : 'encoder stalled')) noteProblem('encoder-stalled', 'video-restarted');
   });
 
   // WebRTC viewers that reported before have gone quiet while frames are

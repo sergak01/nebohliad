@@ -16,6 +16,11 @@ const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 // ukrainealarm's onboarding / terms while it waits for the user.
 const ONBOARDING_SHOWN = '[data-detail-map-onboarding][aria-hidden="false"]';
+// ukrainealarm's presence check ("Ви ще на мапі?", since 2026-11-25): its
+// modal dialog, and the "Показати цілі" button the site leaves once the
+// dialog is closed without the check (it opens the dialog again).
+const PRESENCE_DIALOG = 'dialog[data-map-presence-dialog][open]';
+const PRESENCE_RESUME = '[data-map-presence-resume]:not([hidden])';
 
 const SITE_RULES = {
   // click / acceptedStorage: the site's safety notices (only after the app's
@@ -81,8 +86,23 @@ const SITE_RULES = {
     // #detail-target-tooltip: the hover card of a target (appended to <body>,
     // so map-only mode would hide it); on the top page it shows with
     // "interact" on.
-    modals: ['dialog[open]', '#detail-target-tooltip:not([hidden])', ONBOARDING_SHOWN],
-    overlayModals: ['#detail-target-tooltip:not([hidden])', ONBOARDING_SHOWN],
+    modals: ['dialog[open]', '#detail-target-tooltip:not([hidden])', ONBOARDING_SHOWN, PRESENCE_RESUME],
+    overlayModals: ['#detail-target-tooltip:not([hidden])', ONBOARDING_SHOWN, PRESENCE_DIALOG, PRESENCE_RESUME],
+    // The presence check: when the server answers the targets subscription
+    // with `captcha_required`, the site clears its targets, sets
+    // html.map-presence-required and opens a modal dialog with a checkbox
+    // ("Так, я переглядаю мапу"); ticking it mounts a Cloudflare Turnstile
+    // widget, whose answer the site sends itself. The site asks for a person
+    // here: Nebohliad never ticks it, never touches the widget and does
+    // nothing to keep the check from coming. It only keeps the dialog and
+    // the resume button within the user's reach (modals / overlayModals) and
+    // says that the site waits (`site-presence` → toolbar chip, stream strip).
+    // `waiting`: any of these in the page; `widget`: the check itself is on
+    // screen (it draws in its own frame, see "Paint signal").
+    presence: {
+      waiting: ['html.map-presence-required', PRESENCE_DIALOG, PRESENCE_RESUME],
+      widget: `${PRESENCE_DIALOG} [data-map-presence-widget]:not([hidden])`,
+    },
     // Animations that map-only mode hides but that run on: paused while
     // hidden. The radar sweep (an endless SVG transform animation in the
     // site's header) made the page restyle and lay itself out ~58 times a
@@ -220,6 +240,32 @@ function watchShown(selector, channel) {
 
 if (rules?.challenge) watchShown(rules.challenge, 'site-challenge');
 if (rules?.terms) watchShown(rules.terms, 'site-terms');
+
+// The site's presence check waits for the user (ukrainealarm, `presence`):
+// sent to main on change. Only read, never touched. While its widget is on
+// screen the page counts as changing, like a Cloudflare check.
+let presenceWidgetShown = false;
+
+function watchPresence(rule) {
+  // The first reading always goes out: after a page load main may still hold
+  // "waiting" from the page before.
+  let last;
+  const check = () => {
+    const on = rule.waiting.some((selector) => document.querySelector(selector));
+    presenceWidgetShown = Boolean(on && document.querySelector(rule.widget));
+    if (on === last) return;
+    last = on;
+    ipcRenderer.send('site-presence', on);
+  };
+  const start = () => {
+    check();
+    setInterval(check, SITE_NOTICE_MS);
+  };
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start, { once: true });
+  else start();
+}
+
+if (rules?.presence) watchPresence(rules.presence);
 
 // A sign-in the site needs before it shows targets (ukrainealarm: Diia).
 // Map-only mode hides its button and status, so the status goes to main
@@ -1253,7 +1299,7 @@ function visibleAnimationRuns() {
 }
 
 setInterval(() => {
-  if (!mapOnlyNow || challengeShown) {
+  if (!mapOnlyNow || challengeShown || presenceWidgetShown) {
     pagePainted();
   } else if (Date.now() < animationWatchUntil && visibleAnimationRuns()) {
     watchAnimations();
@@ -1325,6 +1371,13 @@ function modalsCss(selectors) {
   const all = selectors.join(', ');
   const withChildren = selectors.map((s) => `${s}, ${s} *`).join(', ');
   return `${withChildren} { visibility: visible !important; }\n  ${all} { z-index: 2147483001 !important; }`;
+}
+
+// Overlay page: a modal dialog of the site's that stays visible there must
+// not dim the base map under it with its backdrop.
+function clearBackdropCss(selectors) {
+  const dialogs = (selectors || []).filter((s) => s.startsWith('dialog'));
+  return dialogs.length ? `${dialogs.map((s) => `${s}::backdrop`).join(', ')} { background: transparent !important; backdrop-filter: none !important; }` : '';
 }
 
 // Targets only (overlay page): no page backgrounds, so the base map shows
@@ -1399,6 +1452,7 @@ function setPageMode(mode, live) {
     () => toggleCss('still', stillCss(rules?.still), Boolean(mapOnly && rules?.still?.length)),
     () => toggleCss('modals', modalsCss(rules?.modals), Boolean(mode.isBase && mode.hudHidden && rules?.modals?.length)),
     () => toggleCss('overlayModals', modalsCss(rules?.overlayModals), Boolean(!mode.isBase && (mode.hudHidden || targetsOnly) && rules?.overlayModals?.length)),
+    () => toggleCss('overlayBackdrop', clearBackdropCss(rules?.overlayModals), Boolean(mode.isBase === false && clearBackdropCss(rules?.overlayModals))),
     () => toggleCss('transparent', TRANSPARENT_CSS, targetsOnly),
     () => toggleCss('topLayer', topLayerCss(Number(mode.opacity) || 1), mode.isBase === false),
     () => mapSync.setLayerFilter(targetsOnly ? rules.targetLayers : null),

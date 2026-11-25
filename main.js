@@ -23,6 +23,7 @@ const { setupDemo } = require('./demo');
 const { setupVersionCheck } = require('./version-check');
 const { setupSiteHealth } = require('./site-health');
 const { setupConnectivity } = require('./connectivity');
+const { setupPresenceNotice } = require('./presence-notice');
 const { setupTray } = require('./tray');
 const { setupNotice } = require('./notice-window');
 const { setupStream, QUALITY, AREAS, LAYERS, FPS_CHOICES } = require('./stream-server');
@@ -74,6 +75,15 @@ const APP_NAMES = { uk: 'Небогляд', en: 'Nebohliad' };
 // WebRTC sender offers its real LAN address, so phones can connect without
 // resolving an mDNS name.
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,WebRtcHideLocalIpsWithMdns');
+// 2D canvases are drawn by the processor, not the graphics card (a standard
+// browser switch; WebGL, so the maps and the stream's compositor, is not
+// affected). ukrainealarm redraws its overview of the regions on a 2D canvas
+// outside the page (1553×1045) at every data update and hands it to the map
+// as a texture; with the canvas on the graphics card the GPU process took
+// about 300 MB more for several seconds each time, every 30–60 s (measured
+// 2026-11-21: also with the bare site and none of our code). Our own 2D
+// canvases are small: PiP, once a second.
+app.commandLine.appendSwitch('disable-accelerated-2d-canvas');
 // The app used to be called "maps-overlay", so its data (settings, locations,
 // site sessions) lived in %APPDATA%\maps-overlay. Copy it once into the new
 // userData folder; caches are skipped and the old folder is left untouched.
@@ -301,6 +311,31 @@ const siteSignIn = {};
 // The site's terms waiting for the user (preload.js `terms`, ukrainealarm's
 // onboarding): site ids. Never accepted for the user.
 const siteTerms = new Set();
+// The site's presence check waiting for the user (preload.js `presence`,
+// ukrainealarm's "Ви ще на мапі?"): site ids. The site shows no targets
+// meanwhile. Never answered for the user.
+const sitePresence = new Set();
+// A Windows notification about it (presence-notice.js): in the tray or
+// behind other windows nobody sees the chip, and the site's targets, the
+// alerts and follow that read them stop without a word.
+const presenceNotice = setupPresenceNotice({
+  lang: () => settings?.lang,
+  label: (site) => SITES[site]?.label || site,
+  // The site's window is in front of the user: its dialog says it all.
+  seen: (site) => {
+    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible() || mainWindow.isMinimized()) return false;
+    if (site !== settings.base && !topShown) return false;
+    return mainWindow.isFocused() || Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isFocused());
+  },
+  quiet: () => alerts?.quietNow(),
+  // Like the chip's click: the window back, and the top layer within reach.
+  open: (site) => {
+    restoreMain();
+    if (site === settings.base) return;
+    if (!topShown) setTopShown(true);
+    setClickThrough(false);
+  },
+});
 
 // Our own notices next to the site's (site-health.js): its data stopped, or
 // a Cloudflare check waits for the user.
@@ -311,6 +346,7 @@ const NOTICE_TEXT = {
     offline: (at) => `Немає інтернету з ${at}`,
     signIn: 'цілі лише після входу через Дію',
     terms: 'чекає, поки ви приймете його умови',
+    presence: 'цілей не показує, доки ви не підтвердите, що ви на мапі',
   },
   en: {
     stale: (m) => `no new data for ${m} min`,
@@ -318,6 +354,7 @@ const NOTICE_TEXT = {
     offline: (at) => `No internet since ${at}`,
     signIn: 'targets only after signing in with Diia',
     terms: 'waits for you to accept its terms',
+    presence: 'shows no targets until you confirm you are at the map',
   },
 };
 
@@ -352,9 +389,11 @@ function noticesFor(shown) {
     if (siteNotices[site]) list.push({ site, kind: 'site', text: siteNotices[site] });
     if (siteTerms.has(site)) list.push({ site, kind: 'terms' });
     if (siteSignIn[site]) list.push({ site, kind: 'sign-in', text: siteSignIn[site] === 'sign-in' ? null : siteSignIn[site] });
+    if (sitePresence.has(site)) list.push({ site, kind: 'presence' });
     if (issues[site]?.challenge) list.push({ site, kind: 'challenge' });
-    // Without the sign-in the site sends no targets: no "no new data" then.
-    if (issues[site]?.staleMinutes && net?.online !== false && !siteSignIn[site]) list.push({ site, kind: 'stale', minutes: issues[site].staleMinutes });
+    // Without the sign-in or the presence check the site sends no targets:
+    // no "no new data" then.
+    if (issues[site]?.staleMinutes && net?.online !== false && !siteSignIn[site] && !sitePresence.has(site)) list.push({ site, kind: 'stale', minutes: issues[site].staleMinutes });
   }
   return list;
 }
@@ -366,6 +405,7 @@ function noticeText(notice) {
   if (notice.kind === 'challenge') return s.challenge;
   if (notice.kind === 'sign-in') return notice.text || s.signIn;
   if (notice.kind === 'terms') return s.terms;
+  if (notice.kind === 'presence') return s.presence;
   return notice.text;
 }
 
@@ -375,6 +415,16 @@ ipcMain.on('site-terms', (event, on) => {
   if (on) siteTerms.add(site);
   else siteTerms.delete(site);
   log.info('page', on ? 'the site waits for its terms to be accepted' : 'the site terms are no longer shown', { site });
+  pushState();
+});
+
+ipcMain.on('site-presence', (event, on) => {
+  const site = siteOf(event.sender);
+  if (!site || Boolean(on) === sitePresence.has(site)) return;
+  if (on) sitePresence.add(site);
+  else sitePresence.delete(site);
+  log.info('page', on ? 'the site asks to confirm presence, no targets meanwhile' : 'the site presence check is no longer shown', { site });
+  presenceNotice.set(site, Boolean(on));
   pushState();
 });
 
@@ -409,14 +459,15 @@ ipcMain.on('site-socket', (event, socket) => {
 // Settings → Maps "Data" rows ask for it every few seconds while shown.
 ipcMain.handle('ui:site-health', () => siteHealth?.status() || {});
 
-// A click on the toolbar's notice chip: bring the Cloudflare check or the
-// site's terms within reach (interact with the top layer when it is there),
+// A click on the toolbar's notice chip: bring the Cloudflare check, the
+// site's terms or its presence check within reach (interact with the top
+// layer when it is there; the user answers them, never Nebohliad),
 // reload the maps when a site's data stopped, or start the site's sign-in.
 function handleSiteNotices() {
   const shownNow = noticesFor((site) => site === settings.base || topShown);
   restoreMain();
   // On the top layer clicks pass through: interact to reach the check or the terms.
-  if (shownNow.some((n) => (n.kind === 'challenge' || n.kind === 'terms') && n.site !== settings.base)) setClickThrough(false);
+  if (shownNow.some((n) => ['challenge', 'terms', 'presence'].includes(n.kind) && n.site !== settings.base)) setClickThrough(false);
   if (shownNow.some((n) => n.kind === 'stale')) reloadPages('site data stopped');
   for (const n of shownNow) if (n.kind === 'sign-in') startSignIn(n.site);
 }
@@ -1466,10 +1517,12 @@ if (!app.requestSingleInstanceLock()) {
         // Not war-monitor: a reload can bring its Cloudflare check back.
         autoReload: { ukrainealarm: true },
         reload: (site) => pageFixers[site]?.('site data stopped'),
-        // The site's own "data paused" notice, its sign-in not done, or no
-        // internet: nothing a reload would fix (offline it would leave an
-        // empty page; mid sign-in it would drop the request).
-        paused: (site) => Boolean(siteNotices[site]) || Boolean(siteSignIn[site]) || Boolean(connectivity?.offline()),
+        // The site's own "data paused" notice, its sign-in not done, its
+        // presence check waiting, or no internet: nothing a reload would fix
+        // (offline it would leave an empty page; mid sign-in it would drop
+        // the request; a presence check is the user's to answer, and a
+        // reload must not come under their hands or instead of them).
+        paused: (site) => Boolean(siteNotices[site]) || Boolean(siteSignIn[site]) || sitePresence.has(site) || Boolean(connectivity?.offline()),
       },
     );
     // After a long outage the pages keep old data until reloaded: reload

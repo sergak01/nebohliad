@@ -39,6 +39,7 @@ function render() {
     if (notices.some((n) => n.kind === 'stale')) hint.push(t('notice.stale.click'));
     if (notices.some((n) => n.kind === 'sign-in')) hint.push(t('notice.sign-in.click'));
     if (notices.some((n) => n.kind === 'terms')) hint.push(t('notice.terms.click'));
+    if (notices.some((n) => n.kind === 'presence')) hint.push(t('notice.presence.click'));
     // Not a click target: said in the tooltip only.
     const info = notices.some((n) => n.kind === 'offline') ? [t('notice.offline.hint')] : [];
     $('site-notice-text').textContent = notices.map(label).join(' · ');

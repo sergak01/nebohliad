@@ -327,6 +327,14 @@ const presenceNotice = setupPresenceNotice({
     if (site !== settings.base && !topShown) return false;
     return mainWindow.isFocused() || Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isFocused());
   },
+  // Nobody reads a notification on a locked screen: it waits for the unlock.
+  locked: () => {
+    try {
+      return powerMonitor.getSystemIdleState(3600) === 'locked';
+    } catch {
+      return false;
+    }
+  },
   quiet: () => alerts?.quietNow(),
   // Like the chip's click: the window back, and the top layer within reach.
   open: (site) => {
@@ -1583,6 +1591,8 @@ const RESUME_SETTLE_MS = 4000;
 app.whenReady().then(() => {
   for (const event of ['resume', 'unlock-screen']) {
     powerMonitor.on(event, () => setTimeout(() => stream?.resetVideo(event), RESUME_SETTLE_MS));
+    // The user is back: a presence check still waiting is said (again) now.
+    powerMonitor.on(event, () => setTimeout(() => presenceNotice.check({ returned: true }), RESUME_SETTLE_MS));
   }
 });
 app.on('child-process-gone', (_event, details) => {

@@ -64,15 +64,19 @@
 - Обидва сайти відкриваються як звичайні вебсторінки, кожен у своєму вікні,
   так само як у браузері. Немає API, скрейпінгу чи запитів до внутрішніх
   адрес сайтів; перевірку Cloudflare Turnstile користувач проходить сам.
-- map.ukrainealarm.com показує цілі лише після входу через Дія.Підпис і
-  просить прийняти його умови. І те, й інше користувач робить сам: Небогляд
-  лише підказує на панелі, що сайт чекає, і відкриває вікно сайту з QR-кодом
-  для застосунку Дія; умови сайтів він не приймає за користувача.
+- map.ukrainealarm.com показує цілі лише після входу (через Дія.Підпис або
+  через Google чи Apple з підтвердженням «Дія.Антибот») і просить прийняти
+  його умови. І те, й інше користувач робить сам: Небогляд лише підказує на
+  панелі, що сайт чекає, і відкриває сторінки входу (Дії, Google, Apple) в
+  окремих вікнах застосунку. Він нічого в них не вводить і не читає, а умови
+  сайтів не приймає за користувача. Файли cookie входу лишаються в застосунку
+  на комп'ютері користувача.
 - Час від часу map.ukrainealarm.com питає «Ви ще на мапі?» і не показує цілей,
   доки користувач не поставить галочку. Це перевірка, що за мапою є людина,
   тож її проходить лише користувач: Небогляд не ставить галочку і не робить
   нічого, щоб перевірка не з'являлася. Він тільки лишає вікно сайту на видноті,
-  пише на панелі й на трансляції, що сайт чекає, і надсилає сповіщення Windows.
+  пише на панелі й на трансляції, що сайт чекає, і надсилає сповіщення Windows,
+  яке повторює, доки перевірка лишається без відповіді.
 - Усе, що застосунок змінює, відбувається лише на машині користувача: він
   ховає інтерфейс сайтів і рекламні банери, після підтвердження власного
   безпекового попередження закриває схожі попередження сайтів (не їхні
@@ -234,17 +238,19 @@ of the other, with synchronized zoom and position.
 - Both sites open as normal web pages, each in its own window, just as in a
   browser. No API, no scraping, no requests to the sites' internal endpoints;
   the user passes the Cloudflare Turnstile check themselves.
-- map.ukrainealarm.com shows targets only after signing in with
-  Diia.Signature and asks the user to accept its terms. The user does both:
-  Nebohliad only says in the toolbar that the site is waiting and opens the
-  site's window with the QR code for the Diia app; it never accepts a site's
-  terms for the user.
+- map.ukrainealarm.com shows targets only after a sign-in (with
+  Diia.Signature, or with Google or Apple plus a "Diia.Antibot" confirmation)
+  and asks the user to accept its terms. The user does both: Nebohliad only
+  says in the toolbar that the site is waiting and opens the sign-in pages
+  (Diia, Google, Apple) in windows of its own. It types and reads nothing in
+  them and never accepts a site's terms for the user. The sign-in cookies
+  stay in the app on the user's computer.
 - From time to time map.ukrainealarm.com asks "Are you still at the map?" and
   shows no targets until the user ticks its box. It is a check that a person
   is at the map, so only the user passes it: Nebohliad never ticks the box and
   does nothing to keep the check from coming. It only keeps the site's window
   in view, says in the toolbar and on the stream that the site is waiting, and
-  sends a Windows notification.
+  sends a Windows notification, repeated while the check stays unanswered.
 - Everything the app changes happens only on the user's machine: it hides the
   sites' interface and promo banners, closes the sites' similar safety notices
   (not their terms) once its own notice is confirmed, synchronizes the maps,

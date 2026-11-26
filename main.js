@@ -24,6 +24,7 @@ const { setupVersionCheck } = require('./version-check');
 const { setupSiteHealth } = require('./site-health');
 const { setupConnectivity } = require('./connectivity');
 const { setupPresenceNotice } = require('./presence-notice');
+const { openProviderWindow, watchReturn, providerOf } = require('./sign-in-window');
 const { setupTray } = require('./tray');
 const { setupNotice } = require('./notice-window');
 const { setupStream, QUALITY, AREAS, LAYERS, FPS_CHOICES } = require('./stream-server');
@@ -50,6 +51,8 @@ const SITES = {
     label: 'ukrainealarm',
     title: 'map.ukrainealarm.com',
     partition: 'persist:bottom',
+    // Its sign-in may send the page to an account provider (Google, Apple).
+    accountSignIn: true,
   },
   'war-monitor': {
     url: 'https://map.war-monitor.org/',
@@ -443,7 +446,18 @@ ipcMain.on('site-sign-in', (event, text) => {
   if ((siteSignIn[site] || null) === value) return;
   if (!value !== !siteSignIn[site]) log.info('page', value ? 'the site wants a sign-in to show targets' : 'signed in on the site', { site });
   if (value) siteSignIn[site] = value;
-  else delete siteSignIn[site];
+  else {
+    delete siteSignIn[site];
+    // Signed in: a sign-in window still open has nothing more to show. Seen
+    // 2026-11-26 after Google + Diia.Antibot: the map page reloaded itself
+    // signed in, and Diia's window stayed on its last page (the site loses
+    // its handle on that window when it reloads).
+    const open = signInWindows[site];
+    if (open && !open.isDestroyed()) {
+      replacedSignIn.add(open);
+      open.close();
+    }
+  }
   pushState();
 });
 
@@ -480,7 +494,8 @@ function handleSiteNotices() {
   for (const n of shownNow) if (n.kind === 'sign-in') startSignIn(n.site);
 }
 
-// The site's sign-in window (ukrainealarm: Diia's QR page), per site id.
+// The site's sign-in window (ukrainealarm: Diia's QR page, or an account
+// provider's page), per site id.
 const signInWindows = {};
 
 // The chip's click: bring the site's sign-in window forward, or press the
@@ -1073,7 +1088,7 @@ ipcMain.on('ui:toolbar-action', (_event, { name, data }) => {
 // a map page's sign-in window.
 function routeExternalLinks(webContents, siteId) {
   webContents.setWindowOpenHandler(({ url, frameName }) => {
-    if (siteId && frameName === SIGN_IN_FRAME && (url === 'about:blank' || /^https:\/\//.test(url))) return signInWindowOptions();
+    if (siteId && SIGN_IN_FRAMES.includes(frameName) && (url === 'about:blank' || /^https:\/\//.test(url))) return signInWindowOptions();
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -1086,7 +1101,9 @@ function routeExternalLinks(webContents, siteId) {
 // to Diia's page itself, and there it stayed: no way back but an app
 // restart. Electron gives such a window none of the opener's preload (checked
 // with Electron 44) but the opener's session, which the sign-in needs.
-const SIGN_IN_FRAME = 'diia-authorization';
+// 'diia-map-antibot' (2026-11-26): the same kind of window for the Diia check
+// that follows a sign-in with Google or Apple.
+const SIGN_IN_FRAMES = ['diia-authorization', 'diia-map-antibot'];
 
 function signInWindowOptions() {
   return {
@@ -1108,19 +1125,80 @@ function signInWindowOptions() {
 function watchSignInWindow(siteId, win) {
   const site = new URL(SITES[siteId].url).hostname;
   const earlier = signInWindows[siteId];
-  if (earlier && !earlier.isDestroyed()) earlier.close();
+  if (earlier && !earlier.isDestroyed()) {
+    // An account window gives way to the site's own: no reload for that.
+    replacedSignIn.add(earlier);
+    earlier.close();
+  }
   signInWindows[siteId] = win;
   log.info('page', 'sign-in window opened', { site: siteId });
-  routeExternalLinks(win.webContents);
-  // Back on the map site (a redirect after the sign-in): the map page sees the
-  // sign-in by itself (it polls), so the window has nothing more to show.
+  // Heading back to the map site (a redirect, or a button on Diia's page):
+  // the map page sees the sign-in by itself (it polls), so the window has
+  // nothing more to show. Its other links open in the system browser.
+  watchReturn(win.webContents, SITES[siteId].url, () => win.close());
+  // And, as before, on any page of the site it still got to.
   win.webContents.on('did-navigate', (_event, url) => {
-    if (hostOf(url) === site) win.close();
+    if (hostOf(url) === site && !win.isDestroyed()) win.close();
   });
   win.on('closed', () => {
     if (signInWindows[siteId] === win) delete signInWindows[siteId];
     log.info('page', 'sign-in window closed', { site: siteId });
   });
+}
+
+// ukrainealarm's sign-in with Google or Apple (2026-11-26): the map page goes
+// to the provider itself and expects to come back with the answer. It may not
+// leave its site (keepOnSite), and from the system browser the answer never
+// reaches this page, so the provider's page opens in a window of ours with
+// the page's session (sign-in-window.js). Its first step back to the site is
+// loaded in the map page, as the returning tab would do in a browser. Closed
+// unfinished, the map page (left at "opening the sign-in…") is reloaded. Its
+// dialog then shows the choices again, but (the site's own state, checked
+// 2026-11-26) the Google / Apple buttons do nothing until that dialog is
+// closed with its × and opened again: that is the user's click, not ours.
+// The user signs in; nothing is typed for them.
+const replacedSignIn = new WeakSet();
+
+function openAccountSignIn(siteId, contents, url) {
+  const earlier = signInWindows[siteId];
+  if (earlier && !earlier.isDestroyed()) {
+    // Not "closed unfinished": the page is already on its way to a new one.
+    replacedSignIn.add(earlier);
+    earlier.close();
+  }
+  const loadInPage = (address) => {
+    if (contents.isDestroyed() || quitting) return;
+    if (siteId === settings.base) keepViewAcrossReload();
+    ourReloadAt[siteId] = Date.now();
+    if (address) contents.loadURL(address).catch(() => {});
+    else reloadSite(siteId, contents);
+  };
+  const win = openProviderWindow({
+    url,
+    session: contents.session,
+    parent: mainWindow,
+    siteUrl: SITES[siteId].url,
+    siteLabel: SITES[siteId].label,
+    lang: () => settings?.lang,
+    icon: path.join(__dirname, 'assets', 'icon.png'),
+    onReturn: (address) => {
+      log.info('page', 'the account sign-in came back to the site', { site: siteId });
+      loadInPage(address);
+    },
+    onClosed: (how) => {
+      if (signInWindows[siteId] === win) delete signInWindows[siteId];
+      log.info('page', 'account sign-in window closed', { site: siteId, how });
+      // Not back with an answer (closed, or sent to the system browser): the
+      // page was left at "opening the sign-in…" and does nothing there.
+      // Loaded again it asks its server about this sign-in for a while, as
+      // a returning tab does.
+      if (how !== 'returned' && !replacedSignIn.has(win)) loadInPage(null);
+    },
+  });
+  if (!win) return false;
+  signInWindows[siteId] = win;
+  log.info('page', 'account sign-in window opened', { site: siteId, provider: providerOf(url) });
+  return true;
 }
 
 function hostOf(url) {
@@ -1139,6 +1217,7 @@ function keepOnSite(siteId, contents) {
   contents.on('will-navigate', (event) => {
     if (!event.isMainFrame || hostOf(event.url) === site) return;
     event.preventDefault();
+    if (SITES[siteId].accountSignIn && providerOf(event.url) && openAccountSignIn(siteId, contents, event.url)) return;
     log.warn('page', 'the page tried to leave its site: opened in the browser instead', { site: siteId, host: hostOf(event.url) });
     if (/^https?:\/\//.test(event.url)) shell.openExternal(event.url);
   });
@@ -1320,7 +1399,7 @@ function createPage(siteId) {
   denyWakeLocks(view.webContents.session);
   routeExternalLinks(view.webContents, siteId);
   view.webContents.on('did-create-window', (win, details) => {
-    if (details.frameName === SIGN_IN_FRAME) watchSignInWindow(siteId, win);
+    if (SIGN_IN_FRAMES.includes(details.frameName)) watchSignInWindow(siteId, win);
   });
   keepOnSite(siteId, view.webContents);
   watchPage(siteId, view.webContents);

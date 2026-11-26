@@ -68,6 +68,11 @@
   просить прийняти його умови. І те, й інше користувач робить сам: Небогляд
   лише підказує на панелі, що сайт чекає, і відкриває вікно сайту з QR-кодом
   для застосунку Дія; умови сайтів він не приймає за користувача.
+- Час від часу map.ukrainealarm.com питає «Ви ще на мапі?» і не показує цілей,
+  доки користувач не поставить галочку. Це перевірка, що за мапою є людина,
+  тож її проходить лише користувач: Небогляд не ставить галочку і не робить
+  нічого, щоб перевірка не з'являлася. Він тільки лишає вікно сайту на видноті,
+  пише на панелі й на трансляції, що сайт чекає, і надсилає сповіщення Windows.
 - Усе, що застосунок змінює, відбувається лише на машині користувача: він
   ховає інтерфейс сайтів і рекламні банери, після підтвердження власного
   безпекового попередження закриває схожі попередження сайтів (не їхні
@@ -234,6 +239,12 @@ of the other, with synchronized zoom and position.
   Nebohliad only says in the toolbar that the site is waiting and opens the
   site's window with the QR code for the Diia app; it never accepts a site's
   terms for the user.
+- From time to time map.ukrainealarm.com asks "Are you still at the map?" and
+  shows no targets until the user ticks its box. It is a check that a person
+  is at the map, so only the user passes it: Nebohliad never ticks the box and
+  does nothing to keep the check from coming. It only keeps the site's window
+  in view, says in the toolbar and on the stream that the site is waiting, and
+  sends a Windows notification.
 - Everything the app changes happens only on the user's machine: it hides the
   sites' interface and promo banners, closes the sites' similar safety notices
   (not their terms) once its own notice is confirmed, synchronizes the maps,
